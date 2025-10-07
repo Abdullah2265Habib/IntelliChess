@@ -7,7 +7,7 @@ HIGHLIGHTCOLOR = (255, 255, 0, 100)
 BEIGE = (240, 217, 181)
 BROWN = (181, 136, 99)
 
-def drawBoard(screen):
+def displayBoard(screen):
     #in chess board, rank is a set of horizantal rows which are represented by a number like 1,2,3,4,5,6,7,8
     #file is the set of vertical column which are represented by alphabets like a,b,c,d,e,f,g,h
     # 
@@ -36,7 +36,7 @@ def drawPieces(screen, board, images):
 
                 screen.blit(img_or_text, text_rect)
 
-def drawHighlight(screen, square):
+def highlightValidMoves(screen, square):
     if square is not None:
         col = chess.square_file(square)
         row = 7 - chess.square_rank(square)
@@ -44,11 +44,11 @@ def drawHighlight(screen, square):
         pygame.draw.rect(surface, HIGHLIGHTCOLOR, (0, 0, SQUARESIZE, SQUARESIZE))
         screen.blit(surface, (col * SQUARESIZE, row * SQUARESIZE))
 
-def drawValidMoves(screen, board, selected_square):
-    if selected_square is None:
+def drawValidMoves(screen, board, selectedSquare):
+    if selectedSquare is None:
         return
     for move in board.legal_moves:
-        if move.from_square == selected_square:
+        if move.from_square == selectedSquare:
             col = chess.square_file(move.to_square)
             row = 7 - chess.square_rank(move.to_square)
             surface = pygame.Surface((SQUARESIZE, SQUARESIZE), pygame.SRCALPHA)

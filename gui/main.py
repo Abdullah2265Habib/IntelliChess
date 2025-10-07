@@ -1,8 +1,8 @@
 import pygame
 import chess
 from utils import loadImages, mouseToSquare
-
-
+from board import displayBoard, drawPieces, highlightValidMoves, drawValidMoves
+import random
 
 """The main.py will contail the loop and it will control the game
     the utils.py contains the images and we will load it into the board for piece representatino
@@ -18,3 +18,80 @@ SQUARESIZE = int(SQUARESIZE)
 
 # i am blank here :) first i need to make board.py to represent the chess board
 
+def getGameStatus(board):
+    if board.is_checkmate():
+        return "Checkmate! " + ("Black" if board.turn else "White") + " wins!"
+    elif board.is_stalemate():
+        return "Stalemate! Draw!"
+    elif board.is_insufficient_material():
+        return "Draw by insufficient material!"
+    elif board.is_check():
+        return "Check!"
+    else:
+        return "2-Player Chess - " + ("White's turn" if board.turn else "Black's turn")
+
+#getting random bot moves
+def getBotMove(board):
+    return random.choice(list(board.legal_moves))
+def main():
+    BOT_PLAYS_WHITE = False  # Or True if you want bot to go first
+    pygame.init()
+    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+    pygame.display.set_caption("2-Player Chess")
+    clock = pygame.time.Clock()
+    board = chess.Board()
+    images = loadImages(SQUARESIZE)
+    selectedSquare = None
+    running = True
+
+    while running:
+        displayBoard(screen)
+        if selectedSquare is not None:
+            highlightValidMoves(screen, selectedSquare)
+            drawValidMoves(screen, board, selectedSquare)
+        drawPieces(screen, board, images)
+        pygame.display.set_caption(getGameStatus(board))
+        pygame.display.flip()
+        clock.tick(60)
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+
+            elif event.type == pygame.MOUSEBUTTONDOWN and not board.is_game_over():
+                square = mouseToSquare(event.pos, SQUARESIZE)
+                if selectedSquare is None:
+                    if board.piece_at(square) and board.piece_at(square).color == board.turn:
+                        selectedSquare = square
+                else:
+                    move = chess.Move(selectedSquare, square)
+                    if (board.piece_at(selectedSquare) and 
+                        board.piece_at(selectedSquare).piece_type == chess.PAWN and 
+                        chess.square_rank(square) in [0, 7]):
+                        move = chess.Move(selectedSquare, square, promotion=chess.QUEEN)
+                    if move in board.legal_moves:
+                        board.push(move)
+                    selectedSquare = None
+
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
+                selectedSquare = None
+
+            elif event.type == pygame.KEYDOWN and event.key == pygame.K_r:
+                board = chess.Board()
+                selectedSquare = None
+
+        if not board.is_game_over():
+            if board.turn == chess.WHITE and BOT_PLAYS_WHITE:
+                pygame.time.wait(300)
+                board.push(getBotMove(board))
+                selectedSquare = None
+            elif board.turn == chess.BLACK and not BOT_PLAYS_WHITE:
+                pygame.time.wait(300)
+                board.push(getBotMove(board))
+                selectedSquare = None
+
+
+    pygame.quit()
+
+if __name__ == "__main__":
+    main()
