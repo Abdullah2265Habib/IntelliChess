@@ -4,6 +4,14 @@ from utils import loadImages, mouseToSquare
 from board import displayBoard, drawPieces, highlightValidMoves, drawValidMoves
 import random
 
+import sys
+import os
+# Add root directory to system path so we can import from PGN/
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from pgn.savePGN import saveGamePGN
+
+
 """The main.py will contail the loop and it will control the game
     the utils.py contains the images and we will load it into the board for piece representatino
     board.pyit will handle draweing and UI logic for the board"""
@@ -34,7 +42,9 @@ def getGameStatus(board):
 def getBotMove(board):
     return random.choice(list(board.legal_moves))
 def main():
-    BOT_PLAYS_WHITE = False  # Or True if you want bot to go first
+    isGameOver = False
+
+    BOT_PLAYS_WHITE = False  #or true if i want bot to go first
     pygame.init()
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("2-Player Chess")
@@ -55,6 +65,9 @@ def main():
         clock.tick(60)
 
         for event in pygame.event.get():
+            if board.is_game_over() and not isGameOver:
+                saveGamePGN(board)
+                isGameOver = True
             if event.type == pygame.QUIT:
                 running = False
 
