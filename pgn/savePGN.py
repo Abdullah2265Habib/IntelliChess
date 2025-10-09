@@ -10,6 +10,7 @@ def saveGamePGN(board):
     game.headers["Event"] = "Bullet: 1 min"
     game.headers["Date"] = datetime.datetime.now().strftime("%Y.%m.%d")
     game.headers["Result"] = board.result()
+    # white, vlack, round no, and site is missing. has to add logic of these.
 
     pgn_string = str(game)
 
