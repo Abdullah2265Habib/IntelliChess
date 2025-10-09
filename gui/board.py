@@ -4,8 +4,8 @@ import chess
 SQUARESIZE = 60
 CIRCLECOLOR = (0, 0, 0, 80)
 HIGHLIGHTCOLOR = (255, 255, 0, 100)
-BEIGE = (240, 217, 181)
-BROWN = (181, 136, 99)
+BEIGE = (238, 238, 210)
+BROWN = (118, 150, 86)
 
 def displayBoard(screen):
     #in chess board, rank is a set of horizantal rows which are represented by a number like 1,2,3,4,5,6,7,8

@@ -1,0 +1,9 @@
+[Event "Bullet: 1 min"]
+[Site "?"]
+[Date "2025.10.08"]
+[Round "?"]
+[White "?"]
+[Black "?"]
+[Result "1-0"]
+
+1. c4 e5 2. Nf3 c5 3. Nxe5 Qc7 4. f4 Qd8 5. Nc6 f6 6. Nxd8 b5 7. Nf7 g5 8. Nd6+ Bxd6 9. Nc3 gxf4 10. Nxb5 f5 11. Nxd6+ Kd8 12. Nxc8 Ne7 13. Nxe7 Kxe7 14. Qa4 d5 15. Qc6 h5 16. Qc7+ Kf8 17. Qd8+ Kg7 18. Qe7+ Kg6 19. Qe6+ Kg7 20. Qe5+ Kh6 21. Qxf5 Rf8 22. Qxf8+ Kg5 23. Qg7+ Kf5 24. Qf7+ Ke5 25. Qe7+ Kd4 26. Qf6+ Kxc4 27. b3+ Kb4 28. Qe5 Ka5 29. Qxd5 Kb5 30. b4 Kxb4 31. Qd4+ Ka5 32. Qxc5+ Ka4 33. Qc4+ Ka5 34. a4 f3 35. Qb5# 1-0
