@@ -28,7 +28,7 @@ SQUARESIZE = int(SQUARESIZE)
 
 # i am blank here :) first i need to make board.py to represent the chess board
 
-def getGameStatus(board):
+def getGameStatus(board): #THIS FUNCTION WILL RETURN THE STATUS OF THE GAME
     if board.is_checkmate():
         return "Checkmate! " + ("Black" if board.turn else "White") + " wins!"
     elif board.is_stalemate(): # no legal modes available 
