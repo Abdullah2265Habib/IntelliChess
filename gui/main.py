@@ -3,7 +3,7 @@ import chess
 from utils import loadImages, mouseToSquare
 from board import displayBoard, drawPieces, highlightValidMoves, drawValidMoves
 import random
-
+#path fro PGN directory to save the game in PGN format as it is in another directory so to use it we will nedd to import it
 import sys
 import os
 # Add root directory to system path so we can import from PGN/
@@ -22,6 +22,8 @@ from pgn.savePGN import saveGamePGN
 WIDTH, HEIGHT = 480, 480
 #aagar board ka size 480 hai.......then let x=480.........size of one block will be x/8;
 SQUARESIZE = WIDTH / 8  #This can return a float number if we want to increas the size of the screen, like moving towards streamlit....it will create problems :(
+#we can also typcast the above into int by // double division sign 
+# and the other method is below
 SQUARESIZE = int(SQUARESIZE)
 
 # i am blank here :) first i need to make board.py to represent the chess board
@@ -29,7 +31,7 @@ SQUARESIZE = int(SQUARESIZE)
 def getGameStatus(board):
     if board.is_checkmate():
         return "Checkmate! " + ("Black" if board.turn else "White") + " wins!"
-    elif board.is_stalemate():
+    elif board.is_stalemate(): # no legal modes available 
         return "Stalemate! Draw!"
     elif board.is_insufficient_material():
         return "Draw by insufficient material!"
@@ -40,10 +42,10 @@ def getGameStatus(board):
 
 #getting random bot moves
 def getBotMove(board):
-    return random.choice(list(board.legal_moves))
+    return random.choice(list(board.legal_moves)) #legal random move
 def main():
     isGameOver = False
-
+    # who plays first black/white
     BOT_PLAYS_WHITE = False  #or true if i want bot to go first
     pygame.init()
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
@@ -61,12 +63,12 @@ def main():
             drawValidMoves(screen, board, selectedSquare)
         drawPieces(screen, board, images)
         pygame.display.set_caption(getGameStatus(board))
-        pygame.display.flip()
-        clock.tick(60)
-
+        pygame.display.flip() #
+        clock.tick(60)  #Frame Rate:how many times gets our screen update like 60 then 60 times
+        #GPU uses it
         for event in pygame.event.get():
             if board.is_game_over() and not isGameOver:
-                saveGamePGN(board)
+                saveGamePGN(board)  #PGN:text format  to save the moves of a game in a file
                 isGameOver = True
             if event.type == pygame.QUIT:
                 running = False
