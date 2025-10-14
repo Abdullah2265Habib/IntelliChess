@@ -1,76 +1,81 @@
 import pygame
-import os    #Used to handle file paths, like locating your font file safely across different operating systems.
+import os
 
-def show_menu(screen):  #A function that displays a menu on the screen.
-    # === Load images ===
-    IMG_PATH = os.path.join(os.path.dirname(__file__), "img")
+pygame.init()
 
-    bullet_img = pygame.image.load(os.path.join(IMG_PATH, "bullet.png"))
-    blitz_img = pygame.image.load(os.path.join(IMG_PATH, "blitz.png"))
-    rapid_img = pygame.image.load(os.path.join(IMG_PATH, "rapid.png"))
+LIGHT_GREY = (127, 127, 127)
+GRAY = (59, 59, 59)
+BLUE = (40, 100, 200)
+LIGHT_BLUE = (7, 225, 255)
+WHITE = (255, 255, 255)
 
-    # resize them so they fit beside the text
-    bullet_img = pygame.transform.scale(bullet_img, (60, 60))
-    blitz_img = pygame.transform.scale(blitz_img, (60, 60))
-    rapid_img = pygame.transform.scale(rapid_img, (60, 60))
+screen_width = 480
+screen_height = 480
+button_width = 100
+button_height = 100
 
-    mode_images = [bullet_img, blitz_img, rapid_img]
+screen = pygame.display.set_mode((screen_width, screen_height))
+pygame.display.set_caption('Chess Timer GUI')
+clock = pygame.time.Clock()
 
-    #==== set font for menu ====
-    pygame.font.init()  # initializes the font module in pygame so you can use custom fonts.
+IMG_PATH = os.path.join(os.path.dirname(__file__), "img")
+bullet_img = pygame.image.load(os.path.join(IMG_PATH, "bullet.png"))
+blitz_img = pygame.image.load(os.path.join(IMG_PATH, "blitz.png"))
+rapid_img = pygame.image.load(os.path.join(IMG_PATH, "rapid.png"))
 
-    # Correct path to Orbitron font
-    FONT_PATH = os.path.join(os.path.dirname(__file__), "Orbitron", "Orbitron-Regular.ttf")
+bullet_img = pygame.transform.scale(bullet_img, (100, 100))
+blitz_img = pygame.transform.scale(blitz_img, (100, 100))
+rapid_img = pygame.transform.scale(rapid_img, (100, 100))
 
-    if not os.path.exists(FONT_PATH):
-        raise FileNotFoundError(f"Font file not found at: {FONT_PATH}")
+options = [
+    ("Bullet (1 min)", 60),
+    ("Blitz (3 min)", 180),
+    ("Rapid (10 min)", 600)
+]
 
-    font = pygame.font.Font(FONT_PATH, 70)
-    small_font = pygame.font.Font(FONT_PATH, 40)
+mode_images = [bullet_img, blitz_img, rapid_img]
 
-    WHITE = (255, 255, 255)
-    BLACK = (0, 0, 0)
-    BLUE = (40, 100, 200)
-    LIGHT_BLUE = (100, 180, 255)
-    GRAY = (30, 30, 30)
+try:
+    FONT_PATH = os.path.join(os.path.dirname(__file__), "font", "Orbitron-Bold.ttf")
+    font = pygame.font.Font(FONT_PATH, 70)  
+    small_font = pygame.font.Font(FONT_PATH, 40)  
+except FileNotFoundError:
+    font = pygame.font.SysFont('Arial', 70)
+    small_font = pygame.font.SysFont('Arial', 40)
 
-    clock = pygame.time.Clock()
+def show_menu(screen):
+    button_rects = []
+    selected_option = 0
     running = True
 
-    # Options with (label, seconds)
-    options = [
-        ("Bullet   (1  min)", 60),
-        ("Blitz   (5  min)", 300),
-        ("Rapid (15 min)", 900)
+    icon_positions = [
+        (30, 200),
+        (30, 325),
+        (30, 450), 
     ]
-    selected_option = 0
 
-    # Store button rects for mouse detection
-    button_rects = []
+    text_positions = [
+        (170, 220),
+        (170, 345),
+        (170, 470),
+    ]
 
     while running:
         screen.fill(GRAY)
-        title_text = font.render("IntelliChess", True, WHITE)
-        screen.blit(title_text, (screen.get_width() // 2 - title_text.get_width() // 2, 80))
-
+        title_font = pygame.font.Font(FONT_PATH, 70)
+        title_text = title_font.render("IntelliChess", True, WHITE)
+        screen.blit(title_text, (15, 20))
         button_rects.clear()
+
         for i, ((label, _), icon) in enumerate(zip(options, mode_images)):
             color = LIGHT_BLUE if i == selected_option else BLUE
             text = small_font.render(label, True, color)
 
-            group_y = 250 + i * 100
-            group_padding = 20
+            icon_x, icon_y = icon_positions[i]
+            icon_rect = icon.get_rect(topleft=(icon_x, icon_y))
 
-            # Measure widths
-            icon_width = icon.get_width()
-            text_width = text.get_width()
-
-            total_width = icon_width + group_padding + text_width
-
-            # Center the group horizontally
-            group_x = (screen.get_width() - total_width) // 2
-            icon_rect = icon.get_rect(topleft=(group_x, group_y - icon.get_height() // 2))
-            text_rect = text.get_rect(topleft=(icon_rect.right + group_padding, group_y - text.get_height() // 2))
+            text_x, text_y = text_positions[i]
+            text_rect = text.get_rect(topleft=(text_x, text_y))
 
             screen.blit(icon, icon_rect)
             screen.blit(text, text_rect)

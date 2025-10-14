@@ -68,7 +68,7 @@ def getBotMove(board, opening_book=None):
 def main():  
     isGameOver = False
 
-    BOT_PLAYS_WHITE = False #or true if i want bot to go first
+    BOT_PLAYS_WHITE = False  # or true if you want bot to go first
     pygame.init()
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("Intellichess")
@@ -88,14 +88,12 @@ def main():
     board = chess.Board()
     selectedSquare = None
     
-    
-
     try:
         base_dir = os.path.join("engine", "opening_book", "dataset")
         opening_book = OpeningBook(base_dir=base_dir, max_ply=10)
     except Exception as e:
         opening_book = None
-        print("nothing here X(")
+        print("Nothing here X(")
     running = True
 
     while running:
@@ -109,31 +107,35 @@ def main():
             drawValidMoves(screen, board, selectedSquare)
         drawPieces(screen, board, images)
 
-        # Update and display  Timers
+        # Update and display Timers
         timer.update()
         timer.draw(screen, timer_font)
 
-        # Ends game if time runs out: Check timeout
+        # Check for time-out: if either player's time runs out, end the game
+        # Check for time-out: if either player's time runs out, end the game
         if timer.remaining_white <= 0 or timer.remaining_black <= 0:
             winner = "Computer" if timer.remaining_white <= 0 else "White"
             text = timer_font.render(f"Time Out! {winner} Wins!", False, (230, 210, 40))
             screen.blit(text, (WIDTH // 2 - text.get_width() // 2, HEIGHT // 2))
             pygame.display.flip()
-            time.sleep(3)
-            running = False
-            continue
+            time.sleep(3)  # Pause to display the message
 
-        # Window title
+            # Save the PGN before exiting
+            saveGamePGN(board)
+            running = False  # End the game
+            continue  # Exit to the next loop iteration to stop the game
+
+        # Update the window title
         status_text = getGameStatus(board, opening_book)
         pygame.display.set_caption(status_text)
 
         pygame.display.flip()
         clock.tick(60)
 
-        
+        # Event handling loop
         for event in pygame.event.get():
             if board.is_game_over() and not isGameOver:
-                saveGamePGN(board)
+                saveGamePGN(board)  # Save PGN when the game is over (checkmate, stalemate, etc.)
                 isGameOver = True
 
             if event.type == pygame.QUIT:
@@ -146,7 +148,7 @@ def main():
                 if not (BOARD_TOP <= y <= BOARD_BOTTOM):
                     continue
 
-                #  Adjust Y for the top margin
+                # Adjust Y for the top margin
                 col = x // SQUARESIZE
                 row = (y - BOARD_TOP) // SQUARESIZE
                 square = chess.square(col, 7 - row)
@@ -177,12 +179,14 @@ def main():
                 timer = ChessTimer(total_time=selected_time)
                 selectedSquare = None
                 isGameOver = False
+
+        # If the bot is playing as white, let it make a move automatically after a short delay
         if not board.is_game_over():
             if board.turn == chess.WHITE and BOT_PLAYS_WHITE:
-                            pygame.time.wait(300)
-                            board.push(getBotMove(board, opening_book))
-                            timer.switch_turn() # add timer to switch turns
-                            selectedSquare = None
+                pygame.time.wait(300)
+                board.push(getBotMove(board, opening_book))
+                timer.switch_turn()  # Switch turn after bot move
+                selectedSquare = None
             elif board.turn == chess.BLACK and not BOT_PLAYS_WHITE:
                 # Simulate computer thinking time (1–3 seconds)
                 start_think = time.time()
@@ -190,23 +194,19 @@ def main():
 
                 while time.time() - start_think < think_duration:
                     BACKGROUND_COLOR = (40, 40, 40)
-                    screen.fill(BACKGROUND_COLOR)            # to clear old frame
+                    screen.fill(BACKGROUND_COLOR)  # To clear old frame
 
-                    displayBoard(screen)                     # redraw the board
-                    drawPieces(screen, board, images)        # redraw the pieces
+                    displayBoard(screen)  # Redraw the board
+                    drawPieces(screen, board, images)  # Redraw the pieces
                     timer.update()
-                    timer.draw(screen, timer_font)           # now safe to draw text
+                    timer.draw(screen, timer_font)  # Now safe to draw text
                     pygame.display.flip()
                     clock.tick(30)
-
 
                 # After thinking time, make the move
                 board.push(getBotMove(board, opening_book))
                 timer.switch_turn()
                 selectedSquare = None
-
-
-        
 
     pygame.quit()
 

@@ -10,12 +10,12 @@ def loadImages(squareSize):
         try:
             # Load white piece (uppercase)
             pieces[piece] = pygame.transform.scale(
-                pygame.image.load(f'IntelliChess/gui/img/w{piece}.png'), 
+                pygame.image.load(f'gui/img/w{piece}.png'), 
                 (squareSize, squareSize)
             )
             # Load black piece (uppercase)
             pieces[piece.lower()] = pygame.transform.scale(
-                pygame.image.load(f'IntelliChess/gui/img/b{piece}.png'), 
+                pygame.image.load(f'gui/img/b{piece}.png'), 
                 (squareSize, squareSize)
             )
         except pygame.error:
