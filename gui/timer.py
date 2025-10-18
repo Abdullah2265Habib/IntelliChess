@@ -3,7 +3,7 @@ import time
 from utils import load_font
 import os
 font = load_font(size=60)
-FONT_PATH = os.path.join(os.path.dirname(__file__), "Orbitron", "Orbitron-VariableFont_wght.ttf")
+FONT_PATH = os.path.join(os.path.dirname(__file__), "font", "Orbitron-Bold.ttf")
 
 # Load safely
 if os.path.exists(FONT_PATH):

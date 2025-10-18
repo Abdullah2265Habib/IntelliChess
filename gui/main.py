@@ -11,6 +11,7 @@ from board import displayBoard, drawPieces, highlightValidMoves, drawValidMoves
 from board import MARGIN_TOP, MARGIN_BOTTOM
 from timer import ChessTimer #type:ignore
 from menu import show_menu 
+from turn import getTurnFromButton
 
 # PGN & Opening Book imports
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -30,7 +31,6 @@ SQUARESIZE = int(WIDTH / 8)  #This can return a float number if we want to incre
 BOARD_TOP = MARGIN_TOP 
 BOARD_BOTTOM = BOARD_TOP + 8 * SQUARESIZE
 
-font = load_font(size=60)
 
 # i am blank here :) first i need to make board.py to represent the chess board
 def getGameStatus(board, opening_book=None):
@@ -68,18 +68,23 @@ def getBotMove(board, opening_book=None):
 def main():  
     isGameOver = False
 
-    BOT_PLAYS_WHITE = False  # or true if you want bot to go first
-    pygame.init()
+    BOT_PLAYS_WHITE = getTurnFromButton()
+    #BOT_PLAYS_WHITE=True
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("Intellichess")
     clock = pygame.time.Clock()  
+
+    font = load_font(size=60)
 
     images = loadImages(SQUARESIZE)
     selected_time = show_menu(screen)  # Lets player pick time before starting
     timer = ChessTimer(total_time=selected_time)  # Adds countdown clocks
 
     # Adjust Font for timer
-    font_path = os.path.join("GUI", "fonts", "Orbitron-Regular.ttf")
+    #font_path = os.path.join("GUI", "font", "Orbitron-Bold.ttf")
+    font_dir = os.path.join(os.path.dirname(__file__), "font")
+    font_path = os.path.join(font_dir, "Orbitron-Bold.ttf")
+
     if not os.path.exists(font_path):
         print("Font not found, using default font instead.")
         timer_font = pygame.font.SysFont("impact", 22)

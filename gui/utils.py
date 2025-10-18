@@ -47,9 +47,10 @@ def mouseToSquare(pos, squareSize):
     return chess.square(col, row)
 
 # Function of load font added as i add a new file of fonts to make our appplication more realistic i used gaming fonts
-def load_font(name="Orbitron-Regular.ttf", size=32):
-
-    FONT_PATH = os.path.join(os.path.dirname(__file__), "Orbitron", "Orbitron-Regular.ttf")
+def load_font(name="Orbitron-Bold.ttf", size=32):
+    if not pygame.font.get_init():
+        pygame.font.init()
+    FONT_PATH = os.path.join(os.path.dirname(__file__), "font", "Orbitron-Bold.ttf")
     #font = pygame.font.Font(FONT_PATH, 50)
     if not os.path.exists(FONT_PATH):  #checks for font file first
         print(f"[Warning] Font not found at {FONT_PATH}, using default.")
