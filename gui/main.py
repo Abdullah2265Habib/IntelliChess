@@ -9,7 +9,7 @@ pygame.init()
 from utils import load_font, loadImages
 from board import displayBoard, drawPieces, highlightValidMoves, drawValidMoves
 from board import MARGIN_TOP, MARGIN_BOTTOM
-from timer import ChessTimer #type:ignore
+from timer import ChessTimer
 from menu import show_menu 
 from turn import getTurnFromButton
 
@@ -18,22 +18,14 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from pgn.savePGN import saveGamePGN
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'engine')))
 from engine.opening_book.opening_book import OpeningBook
-"""The main.py will contail the loop and it will control the game
-    the utils.py contains the images and we will load it into the board for piece representatino
-    board.pyit will handle draweing and UI logic for the board"""
+from engine.endgame.endgame import EndgameEngine
 
-# well board.py will be slow. instead if we use bitboard it will be VERY EFFECTIVE in respect of time and analyzing.
-
-#defining the screen :)
 WIDTH, HEIGHT = 480, 600
-#aagar board ka size 480 hai.......then let x=480.........size of one block will be x/8;
-SQUARESIZE = int(WIDTH / 8)  #This can return a float number if we want to increas the size of the screen, like moving towards streamlit....it will create problems :(
+SQUARESIZE = int(WIDTH / 8)  
 BOARD_TOP = MARGIN_TOP 
 BOARD_BOTTOM = BOARD_TOP + 8 * SQUARESIZE
 
-
-# i am blank here :) first i need to make board.py to represent the chess board
-def getGameStatus(board, opening_book=None):
+def getGameStatus(board, opening_book=None, endgame_engine=None):
     if board.is_checkmate():
         status = "Checkmate! " + ("Black" if board.turn else "White") + " wins!"
     elif board.is_stalemate():
@@ -44,6 +36,7 @@ def getGameStatus(board, opening_book=None):
         status = "Check!"
     else:
         status = "Intellichess - " + ("White's move" if board.turn else "Black's move")
+    
     # Add opening name if in opening phase
     if opening_book and board.ply() < 10:
         try:
@@ -51,17 +44,34 @@ def getGameStatus(board, opening_book=None):
             if opening_name != "Unknown Opening":
                 status += f" | {opening_name}"
         except:
-            pass  # Ignore errors
+            pass
+    
+    # Add endgame evaluation if in endgame
+    if endgame_engine and endgame_engine.is_endgame(board):
+        try:
+            eval_text = endgame_engine.tablebase.get_tablebase_evaluation(board)
+            if eval_text != "Unknown":
+                status += f" | {eval_text}"
+        except:
+            pass
+    
     return status
 
-#getting random bot moves
-def getBotMove(board, opening_book=None):
+def getBotMove(board, opening_book=None, endgame_engine=None):
+
     if opening_book and board.ply() < 20:
         opening_move = opening_book.get_opening_move(board)
         if opening_move:
+            print("Using opening book move")
             return opening_move
+    if endgame_engine and endgame_engine.is_endgame(board):
+        endgame_move = endgame_engine.get_best_move(board)
+        if endgame_move:
+            print("Using endgame engine move")
+            return endgame_move
     
-    # Fall back to random move if no opening book move found
+    # Fallback to random move
+    print("Using random move")
     return random.choice(list(board.legal_moves))
 
 
@@ -69,7 +79,6 @@ def main():
     isGameOver = False
 
     BOT_PLAYS_WHITE = getTurnFromButton()
-    #BOT_PLAYS_WHITE=True
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("Intellichess")
     clock = pygame.time.Clock()  
@@ -93,12 +102,22 @@ def main():
     board = chess.Board()
     selectedSquare = None
     
+    # Initialize opening book
     try:
         base_dir = os.path.join("engine", "opening_book", "dataset")
         opening_book = OpeningBook(base_dir=base_dir, max_ply=10)
     except Exception as e:
         opening_book = None
-        print("Nothing here X(")
+        print("Opening book not available:", e)
+    
+    # Initialize endgame engine
+    try:
+        tablebase_path = os.path.join("engine", "tablebases", "syzygy")
+        endgame_engine = EndgameEngine(tablebase_path=tablebase_path)
+    except Exception as e:
+        endgame_engine = None
+        print("Endgame engine not available:", e)
+    
     running = True
 
     while running:
@@ -117,9 +136,8 @@ def main():
         timer.draw(screen, timer_font)
 
         # Check for time-out: if either player's time runs out, end the game
-        # Check for time-out: if either player's time runs out, end the game
         if timer.remaining_white <= 0 or timer.remaining_black <= 0:
-            winner = "Computer" if timer.remaining_white <= 0 else "White"
+            winner = "Black" if timer.remaining_white <= 0 else "White"
             text = timer_font.render(f"Time Out! {winner} Wins!", False, (230, 210, 40))
             screen.blit(text, (WIDTH // 2 - text.get_width() // 2, HEIGHT // 2))
             pygame.display.flip()
@@ -131,8 +149,18 @@ def main():
             continue  # Exit to the next loop iteration to stop the game
 
         # Update the window title
-        status_text = getGameStatus(board, opening_book)
+        status_text = getGameStatus(board, opening_book, endgame_engine)
         pygame.display.set_caption(status_text)
+
+        # Display endgame info if in endgame
+        if endgame_engine and endgame_engine.is_endgame(board):
+            try:
+                eval_text = endgame_engine.tablebase.get_tablebase_evaluation(board)
+                if eval_text != "Unknown":
+                    eval_surface = timer_font.render(f"Tablebase: {eval_text}", True, (100, 200, 100))
+                    screen.blit(eval_surface, (10, HEIGHT - 30))
+            except:
+                pass
 
         pygame.display.flip()
         clock.tick(60)
@@ -189,11 +217,11 @@ def main():
         if not board.is_game_over():
             if board.turn == chess.WHITE and BOT_PLAYS_WHITE:
                 pygame.time.wait(300)
-                board.push(getBotMove(board, opening_book))
+                board.push(getBotMove(board, opening_book, endgame_engine))
                 timer.switch_turn()  # Switch turn after bot move
                 selectedSquare = None
             elif board.turn == chess.BLACK and not BOT_PLAYS_WHITE:
-                # Simulate computer thinking time (1–3 seconds)
+                # Simulate computer thinking time (1-3 seconds)
                 start_think = time.time()
                 think_duration = random.uniform(1, 3)
 
@@ -209,7 +237,7 @@ def main():
                     clock.tick(30)
 
                 # After thinking time, make the move
-                board.push(getBotMove(board, opening_book))
+                board.push(getBotMove(board, opening_book, endgame_engine))
                 timer.switch_turn()
                 selectedSquare = None
 
@@ -218,12 +246,4 @@ def main():
 
 
 if __name__ == "__main__":
-    # import os
-    # print("Current directory:", os.getcwd())
-    # print("Files in engine/opening_book/:")
-    # engine_path = os.path.join(os.path.dirname(__file__), '..', 'engine', 'opening_book')
-    # if os.path.exists(engine_path):
-    #     print(os.listdir(engine_path))
-    # else:
-    #     print("Path doesn't exist:", engine_path)
     main()

@@ -3,6 +3,7 @@ import chess.pgn
 import os
 import random
 from collections import defaultdict, Counter
+import pickle
 
 class OpeningBook:
     def __init__(self, base_dir="engine/opening_book/dataset", max_ply=10):
@@ -10,10 +11,30 @@ class OpeningBook:
         self.max_ply = max_ply
         self.opening_moves = defaultdict(Counter)
         self.eco_openings = {}
-    
+
+        compiled_path = os.path.join(base_dir, "opening_compiled.pkl")
+        if os.path.exists(compiled_path):
+            print("Loading compiled opening book…")
+            self.load_compiled(compiled_path)
+            return
+
+
         print(f"Initializing opening book from: {os.path.abspath(base_dir)}")
-        self.check_files()  # Check files first
+        self.check_files()
         self.load_all_openings()
+
+        print("Saving compiled opening book…")
+        self.save_compiled(compiled_path)
+
+    def save_compiled(self, path):
+        with open(path, "wb") as f:
+            pickle.dump((self.opening_moves, self.eco_openings), f)
+        print(f"Compiled opening book saved to {path}")
+
+    def load_compiled(self, path):
+        with open(path, "rb") as f:
+            self.opening_moves, self.eco_openings = pickle.load(f)
+        print(f"Compiled opening book loaded successfully!")
     
     def check_files(self):
         """Check if required files exist and have content"""
@@ -22,7 +43,6 @@ class OpeningBook:
     
         print("Checking opening book files:")
     
-        # Check PGN file
         if os.path.exists(pgn_path):
             size = os.path.getsize(pgn_path)
             print(f"  lichess_games.pgn: {size} bytes")
@@ -104,7 +124,7 @@ class OpeningBook:
                         print(f"Processed {game_count} games...")
                     
                     # Limit for memory (optional)
-                    if game_count >= 50000:  # Adjust based on your memory
+                    if game_count >= 948414:  # Adjust based on your memory
                         break
                         
         except FileNotFoundError:

@@ -1,0 +1,9 @@
+[Event "Bullet: 1 min"]
+[Site "?"]
+[Date "2025.11.14"]
+[Round "?"]
+[White "?"]
+[Black "?"]
+[Result "1/2-1/2"]
+
+1. e4 c5 2. d4 cxd4 3. Qxd4 Nc6 4. Qc5 e6 5. Nf3 Qe7 6. Ne5 Kd8 7. Qxe7+ Ncxe7 8. Nc6+ Nxc6 9. Bg5+ Nce7 10. Bxe7+ Kc7 11. Bxf8 Nf6 12. Bxg7 a5 13. Bxf6 a4 14. Bxh8 Kb8 15. Nc3 h6 16. Nb5 f5 17. Nc7 b6 18. Bg7 Bb7 19. Bxh6 d6 20. Bf4 a3 21. Na6+ Kc8 22. Bxd6 Rxa6 23. Bxa3 Ra4 24. c4 b5 25. cxb5 Rb4 26. Bc4 e5 27. exf5 Rxb5 28. O-O Bd5 29. Bxd5 Rb7 30. Be7 Rc7 31. Bd8 Rc6 32. b4 Rh6 33. b5 Rh4 34. b6 Kxd8 35. b7 Rd4 36. Be6 Ra4 37. b8=Q+ Ke7 38. Qe8+ Kxe8 39. Bd7+ Kf8 40. f6 Kf7 41. Rac1 Ra3 42. Rc8 Rb3 43. Rf8+ Kxf8 44. f4 Ra3 45. fxe5 Rb3 46. e6 Rb1 47. e7+ Kf7 48. Bc6 Rb4 49. Rf5 Rb1+ 50. Rf1 Rb4 51. Rd1 Rb8 52. Rd7 Rb2 53. e8=Q+ Kxf6 54. Qg6+ Kxg6 55. Rg7+ Kh5 56. Rg5+ Kxg5 57. g3 Rb8 58. Bd5 Kf6 59. Be6 Rb7 60. Bf7 Ra7 61. g4 Rb7 62. g5+ Kf5 63. h3 Ke4 64. Bd5+ Kf4 65. Be6 Re7 66. Bf5 Ra7 67. Kf2 Rg7 68. Be6 Kxg5 69. h4+ Kf6 70. Bf7 Rg5 71. h5 Rb5 72. Be6 Kg5 73. Bf7 Rb1 74. Bd5 Ra1 75. Ke3 Kxh5 76. Kd4 Rg1 77. a4 Rg5 78. Kxh4 Rh5+ 79. Kg4 Rh7 80. Kg5 Re7 81. Kf6 Rb7 82. a5 Rb6+ 83. axb6 1/2-1/2
