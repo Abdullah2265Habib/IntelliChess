@@ -49,7 +49,7 @@ def getGameStatus(board, opening_book=None, endgame_engine=None):
     # Add endgame evaluation if in endgame
     if endgame_engine and endgame_engine.is_endgame(board):
         try:
-            eval_text = endgame_engine.tablebase.get_tablebase_evaluation(board)
+            eval_text = endgame_engine.get_tablebase_evaluation(board)
             if eval_text != "Unknown":
                 status += f" | {eval_text}"
         except:
@@ -112,7 +112,13 @@ def main():
     
     # Initialize endgame engine
     try:
-        tablebase_path = os.path.join("engine", "tablebases", "syzygy")
+        # Get the script's directory and construct absolute path
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        # Go up one level from gui/ to project root, then to engine/tablebases/syzygy
+        tablebase_path = os.path.join(script_dir, "..", "engine", "tablebases", "syzygy")
+        tablebase_path = os.path.normpath(tablebase_path)
+        
+        print(f"Looking for tablebases at: {tablebase_path}")
         endgame_engine = EndgameEngine(tablebase_path=tablebase_path)
     except Exception as e:
         endgame_engine = None
@@ -155,7 +161,7 @@ def main():
         # Display endgame info if in endgame
         if endgame_engine and endgame_engine.is_endgame(board):
             try:
-                eval_text = endgame_engine.tablebase.get_tablebase_evaluation(board)
+                eval_text = endgame_engine.get_tablebase_evaluation(board)
                 if eval_text != "Unknown":
                     eval_surface = timer_font.render(f"Tablebase: {eval_text}", True, (100, 200, 100))
                     screen.blit(eval_surface, (10, HEIGHT - 30))
@@ -212,31 +218,26 @@ def main():
                 timer = ChessTimer(total_time=selected_time)
                 selectedSquare = None
                 isGameOver = False
-
-        # If the bot is playing as white, let it make a move automatically after a short delay
         if not board.is_game_over():
             if board.turn == chess.WHITE and BOT_PLAYS_WHITE:
                 pygame.time.wait(300)
                 board.push(getBotMove(board, opening_book, endgame_engine))
-                timer.switch_turn()  # Switch turn after bot move
+                timer.switch_turn() 
                 selectedSquare = None
             elif board.turn == chess.BLACK and not BOT_PLAYS_WHITE:
-                # Simulate computer thinking time (1-3 seconds)
                 start_think = time.time()
                 think_duration = random.uniform(1, 3)
 
                 while time.time() - start_think < think_duration:
                     BACKGROUND_COLOR = (40, 40, 40)
-                    screen.fill(BACKGROUND_COLOR)  # To clear old frame
+                    screen.fill(BACKGROUND_COLOR)
 
-                    displayBoard(screen)  # Redraw the board
-                    drawPieces(screen, board, images)  # Redraw the pieces
+                    displayBoard(screen)  
+                    drawPieces(screen, board, images)  
                     timer.update()
-                    timer.draw(screen, timer_font)  # Now safe to draw text
+                    timer.draw(screen, timer_font)  
                     pygame.display.flip()
                     clock.tick(30)
-
-                # After thinking time, make the move
                 board.push(getBotMove(board, opening_book, endgame_engine))
                 timer.switch_turn()
                 selectedSquare = None
