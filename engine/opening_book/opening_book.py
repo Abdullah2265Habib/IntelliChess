@@ -124,7 +124,7 @@ class OpeningBook:
                         print(f"Processed {game_count} games...")
                     
                     # Limit for memory (optional)
-                    if game_count >= 948414:  # Adjust based on your memory
+                    if game_count >= 100000:  # Adjust based on your memory
                         break
                         
         except FileNotFoundError:
