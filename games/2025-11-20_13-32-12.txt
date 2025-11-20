@@ -1,0 +1,9 @@
+[Event "Bullet: 1 min"]
+[Site "?"]
+[Date "2025.11.20"]
+[Round "?"]
+[White "?"]
+[Black "?"]
+[Result "*"]
+
+1. f4 d5 2. b4 Nh6 3. Nh3 Rg8 4. c4 Rh8 5. Ng5 Rg8 6. Nf3 Rh8 7. Ng5 Rg8 8. Qb3 Rh8 9. Nxh7 Rg8 10. Qd3 Rh8 11. Nxf8 Rg8 12. Qe4 Rh8 13. Nh7 Rg8 14. Ng5 Rh8 15. Nh7 Rg8 16. Qe3 Rh8 17. Nf8 Rg8 18. a3 Rh8 19. Nh7 Rg8 20. Qe4 Rh8 21. Nf8 Rg8 22. Nc3 Rh8 23. Nh7 Rg8 24. Ra2 Rh8 25. Nf8 Rg8 26. Qc2 Rh8 27. Nh7 Rg8 28. Nf8 Rh8 29. Nh7 Rg8 30. Ra1 Rh8 31. Nf8 Rg8 32. Ne6 Rh8 33. Nf8 Rg8 34. Nh7 Rh8 35. Nf8 Rg8 36. Qb3 Rh8 37. Nh7 Rg8 38. d4 Rh8 39. Nf8 Rg8 40. Qb2 Rh8 41. Nh7 Rg8 42. Kd1 Rh8 43. Nf8 Rg8 44. Na4 Rh8 45. Nh7 Rg8 46. Ra2 Rh8 47. Nf8 Rg8 48. Qa1 Rh8 49. Nh7 Rg8 50. cxd5 Rh8 51. Nf8 Rg8 52. Be3 Rh8 53. Nh7 Rg8 54. Ng5 Rh8 55. Nh7 Rg8 56. Rb2 Rh8 57. Nf8 Rg8 58. Nd7 Rh8 59. Nf8 Rg8 60. Rb3 Rh8 61. Nh7 Rg8 62. Qb1 Rh8 63. Nf8 Rg8 64. d6 Rh8 65. Nh7 Rg8 66. h4 Rh8 67. Nf8 Rg8 68. Qc2 Rh8 69. Nh7 Rg8 70. Ng5 Rh8 71. Nh7 Rg8 72. Qc4 Rh8 73. Nf8 Rg8 74. d7+ Kxf8 75. Qxf7+ Kxf7 76. b5 Rh8 77. Nb6 Rg8 78. Kd2 Rh8 79. Nxc8 Rg8 80. Kd3 Rh8 81. Nxe7 Rg8 82. Rh3 Rh8 83. Ng8 Rxg8 84. a4 Rh8 85. Rg3 Rg8 86. Rg4 Rh8 87. Rxg7+ Kf8 88. Bc1 Rg8 89. Rxg8+ Kxg8 90. Rb1 *

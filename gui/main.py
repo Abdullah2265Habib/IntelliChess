@@ -20,6 +20,9 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'e
 from engine.opening_book.opening_book import OpeningBook
 from engine.endgame.endgame import EndgameEngine
 
+# Alpha-Beta Pruning imports
+from engine.alphabeta_pruning import minimax_with_alphabeta, return_bestMove_and_bestValue
+
 WIDTH, HEIGHT = 480, 600
 SQUARESIZE = int(WIDTH / 8)  
 BOARD_TOP = MARGIN_TOP 
@@ -58,17 +61,27 @@ def getGameStatus(board, opening_book=None, endgame_engine=None):
     return status
 
 def getBotMove(board, opening_book=None, endgame_engine=None):
-
+ 
+     # 1. Opening book moves for first 20 plies
     if opening_book and board.ply() < 20:
         opening_move = opening_book.get_opening_move(board)
         if opening_move:
             print("Using opening book move")
             return opening_move
+    # 2. Endgame tablebases
     if endgame_engine and endgame_engine.is_endgame(board):
         endgame_move = endgame_engine.get_best_move(board)
         if endgame_move:
             print("Using endgame engine move")
             return endgame_move
+    # 3. Alpha-beta for midgame
+    try:
+        print("Using alpha-beta")
+        best_move = return_bestMove_and_bestValue(board, depth=3)
+        if best_move is not None:
+            return best_move
+    except Exception as e:
+        print("Alpha-beta error:", e)
     
     # Fallback to random move
     print("Using random move")
