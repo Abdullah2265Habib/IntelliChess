@@ -4,6 +4,7 @@ import random
 import sys
 import os
 import time
+import traceback
 
 pygame.init()
 from utils import load_font, loadImages
@@ -17,9 +18,10 @@ from turn import getTurnFromButton
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from pgn.savePGN import saveGamePGN
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'engine')))
+#from engine.opening_book.opening_book import OpeningBook
 from engine.opening_book.opening_book import OpeningBook
 from engine.endgame.endgame import EndgameEngine
-
+from engine.engine import get_bot_move
 # Alpha-Beta Pruning imports
 from engine.alphabeta_pruning import minimax_with_alphabeta, return_bestMove_and_bestValue
 
@@ -77,15 +79,32 @@ def getBotMove(board, opening_book=None, endgame_engine=None):
     # 3. Alpha-beta for midgame
     try:
         print("Using alpha-beta")
-        best_move = return_bestMove_and_bestValue(board, depth=3)
+        # call get_bot_move defensively in case signature is different in your engine
+        try:
+            best_move = get_bot_move(board, opening_book, endgame_engine)
+        except TypeError:
+            best_move = get_bot_move(board)
         if best_move is not None:
             return best_move
     except Exception as e:
+        # Print full traceback + helpful debug info so you can trace "list index out of range"
         print("Alpha-beta error:", e)
+        traceback.print_exc()
+        try:
+            print("Board FEN:", board.fen())
+            legal_moves = list(board.legal_moves)
+            print("Legal moves count:", len(legal_moves))
+        except Exception:
+            pass
     
-    # Fallback to random move
-    print("Using random move")
-    return random.choice(list(board.legal_moves))
+    # Fallback to random move (guard against empty move list)
+    legal_moves = list(board.legal_moves)
+    if legal_moves:
+        print("Using random move")
+        return random.choice(legal_moves)
+    else:
+        print("No legal moves available to pick as fallback")
+        return None
 
 
 def main():  
@@ -234,25 +253,29 @@ def main():
         if not board.is_game_over():
             if board.turn == chess.WHITE and BOT_PLAYS_WHITE:
                 pygame.time.wait(300)
-                board.push(getBotMove(board, opening_book, endgame_engine))
-                timer.switch_turn() 
+                move = getBotMove(board, opening_book, endgame_engine)
+                if move:
+                    board.push(move)
+                    timer.switch_turn()
                 selectedSquare = None
             elif board.turn == chess.BLACK and not BOT_PLAYS_WHITE:
                 start_think = time.time()
                 think_duration = random.uniform(1, 3)
-
+ 
                 while time.time() - start_think < think_duration:
                     BACKGROUND_COLOR = (40, 40, 40)
                     screen.fill(BACKGROUND_COLOR)
-
+ 
                     displayBoard(screen)  
                     drawPieces(screen, board, images)  
                     timer.update()
                     timer.draw(screen, timer_font)  
                     pygame.display.flip()
                     clock.tick(30)
-                board.push(getBotMove(board, opening_book, endgame_engine))
-                timer.switch_turn()
+                move = getBotMove(board, opening_book, endgame_engine)
+                if move:
+                    board.push(move)
+                    timer.switch_turn()
                 selectedSquare = None
 
     pygame.quit()
