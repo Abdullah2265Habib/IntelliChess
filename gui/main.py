@@ -19,7 +19,7 @@ from pgn.savePGN import saveGamePGN
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'engine')))
 from engine.opening_book.opening_book import OpeningBook
 from engine.endgame.endgame import EndgameEngine
-from engine.engine import ChessEngine
+from engine.engine import EnhancedChessEngine as ChessEngine
 
 # New window dimensions
 BOARD_SIZE = 560
@@ -43,6 +43,47 @@ ANALYSIS_PANEL_HEIGHT = HEIGHT - ANALYSIS_PANEL_TOP - 20
 
 # Global analysis info
 analysis_lines = []
+
+
+class AnalysisEngine(ChessEngine):
+    """Extended chess engine that outputs detailed analysis"""
+    def __init__(self):
+        super().__init__()
+        self.current_depth = 0
+        self.move_number = 0
+        
+    def alpha_beta_root(self, board, depth, alpha, beta, start_time, max_time):
+        """Override to show all moves being explored"""
+        global analysis_lines
+        
+        best_move = None
+        best_value = float('-inf')
+        moves = self.order_moves(board, list(board.legal_moves))
+        
+        self.current_depth = depth
+        
+        for idx, move in enumerate(moves, 1):
+            # Show current move being explored
+            analysis_lines.append(f"info depth {depth} currmove {move} currmovenumber {idx}")
+            
+            if time.time() - start_time >= max_time * 0.95:
+                raise TimeoutError()
+            
+            board.push(move)
+            try:
+                value = -self.alpha_beta(board, depth - 1, -beta, -alpha, start_time, max_time)
+            finally:
+                board.pop()
+            
+            if value > best_value:
+                best_value = value
+                best_move = move
+            
+            alpha = max(alpha, value)
+            if alpha >= beta:
+                break
+        
+        return best_value, best_move
 
 
 class BotMoveThread(threading.Thread):
@@ -84,7 +125,7 @@ class BotMoveThread(threading.Thread):
             # Use alpha-beta search with detailed output
             analysis_lines.append("info: Starting engine analysis...")
             
-            engine = ChessEngine()
+            engine = AnalysisEngine()
             
             # Monkey-patch the engine to capture print statements
             original_print = print
@@ -135,7 +176,7 @@ class BotMoveThread(threading.Thread):
             builtins.print = custom_print
             
             try:
-                best_move = engine.get_best_move(self.board, max_time=10.0)
+                best_move = engine.get_best_move(self.board, max_time=20.0)
                 if best_move:
                     analysis_lines.append(f"bestmove {best_move}")
                     self.result = best_move
@@ -234,8 +275,10 @@ def draw_analysis_panel(screen, font):
         
         for line in display_lines:
             # Color code different types of lines
-            if line.startswith("info depth"):
-                color = (150, 255, 150)  # Green for depth info
+            if line.startswith("info depth") and "currmove" in line:
+                color = (200, 200, 200)  # Gray for move exploration
+            elif line.startswith("info depth") and "score" in line:
+                color = (150, 255, 150)  # Green for depth summary
             elif line.startswith("bestmove"):
                 color = (255, 255, 100)  # Yellow for best move
             elif line.startswith("info:"):

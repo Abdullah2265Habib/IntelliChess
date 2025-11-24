@@ -1,0 +1,9 @@
+[Event "Bullet: 1 min"]
+[Site "?"]
+[Date "2025.11.24"]
+[Round "?"]
+[White "?"]
+[Black "?"]
+[Result "*"]
+
+1. e4 e5 2. Nf3 d6 3. Bc4 Bg4 4. h3 Bxf3 5. Qxf3 Nh6 6. Qxf7+ Nxf7 7. Bb5+ Nc6 8. Bxc6+ bxc6 9. d3 Qf6 10. Nc3 Qg6 11. O-O Rb8 12. Nd5 cxd5 13. f4 Ng5 14. Kh2 Qf7 15. Be3 Rg8 16. fxg5 Qg6 17. Kg3 dxe4 18. dxe4 Qxe4 19. Bg1 *
