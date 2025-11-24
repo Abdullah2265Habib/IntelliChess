@@ -22,9 +22,9 @@ from engine.endgame.endgame import EndgameEngine
 from engine.engine import EnhancedChessEngine as ChessEngine
 
 # New window dimensions
-BOARD_SIZE = 560
+BOARD_SIZE = 768
 SQUARESIZE = BOARD_SIZE // 8
-SIDEBAR_WIDTH = 450
+SIDEBAR_WIDTH = 600
 WIDTH = BOARD_SIZE + SIDEBAR_WIDTH
 HEIGHT = BOARD_SIZE + 120
 
@@ -50,10 +50,11 @@ class AnalysisEngine(ChessEngine):
     def __init__(self):
         super().__init__()
         self.current_depth = 0
-        self.move_number = 0
+        self.nodes_searched = 0
+        self.start_time = None
         
     def alpha_beta_root(self, board, depth, alpha, beta, start_time, max_time):
-        """Override to show all moves being explored"""
+        """Override to show all moves being explored in Stockfish style"""
         global analysis_lines
         
         best_move = None
@@ -61,10 +62,21 @@ class AnalysisEngine(ChessEngine):
         moves = self.order_moves(board, list(board.legal_moves))
         
         self.current_depth = depth
+        self.start_time = start_time
+        
+        # Keep track of how often we update (to avoid flooding)
+        last_update = time.time()
         
         for idx, move in enumerate(moves, 1):
-            # Show current move being explored
-            analysis_lines.append(f"info depth {depth} currmove {move} currmovenumber {idx}")
+            # Stockfish-style currmove output - show every move being explored
+            current_time = time.time()
+            if current_time - last_update > 0.05:  # Update every 50ms minimum
+                elapsed_ms = int((current_time - start_time) * 1000)
+                nps = int(self.nodes_searched / (elapsed_ms / 1000.0)) if elapsed_ms > 0 else 0
+                analysis_lines.append(
+                    f"info depth {depth} currmove {move.uci()} currmovenumber {idx}/{len(moves)} nodes {self.nodes_searched} nps {nps}"
+                )
+                last_update = current_time
             
             if time.time() - start_time >= max_time * 0.95:
                 raise TimeoutError()
@@ -84,6 +96,11 @@ class AnalysisEngine(ChessEngine):
                 break
         
         return best_value, best_move
+    
+    def alpha_beta(self, board, depth, alpha, beta, start_time, max_time):
+        """Override to track nodes"""
+        self.nodes_searched += 1
+        return super().alpha_beta(board, depth, alpha, beta, start_time, max_time)
 
 
 class BotMoveThread(threading.Thread):
@@ -107,7 +124,8 @@ class BotMoveThread(threading.Thread):
             if self.opening_book and self.board.ply() < 20:
                 opening_move = self.opening_book.get_opening_move(self.board)
                 if opening_move:
-                    analysis_lines.append("info: Using opening book")
+                    analysis_lines.append("info string Using opening book")
+                    analysis_lines.append(f"bestmove {opening_move.uci()}")
                     self.result = opening_move
                     self.is_opening_move = True
                     self.finished = True
@@ -117,18 +135,22 @@ class BotMoveThread(threading.Thread):
             if self.endgame_engine and self.endgame_engine.is_endgame(self.board):
                 endgame_move = self.endgame_engine.get_best_move(self.board)
                 if endgame_move:
-                    analysis_lines.append("info: Using endgame tablebase")
+                    analysis_lines.append("info string Using endgame tablebase")
+                    analysis_lines.append(f"bestmove {endgame_move.uci()}")
                     self.result = endgame_move
                     self.finished = True
                     return
             
             # Use alpha-beta search with detailed output
-            analysis_lines.append("info: Starting engine analysis...")
+            analysis_lines.append("info string Starting engine analysis...")
             
             engine = AnalysisEngine()
+            search_start = time.time()
             
             # Monkey-patch the engine to capture print statements
             original_print = print
+            captured_depth_info = {}
+            
             def custom_print(*args, **kwargs):
                 message = ' '.join(str(arg) for arg in args)
                 
@@ -144,8 +166,8 @@ class BotMoveThread(threading.Thread):
                         
                         depth = depth_part.split()[-1].rstrip(':')
                         eval_str = eval_part.split('=')[-1] if '=' in eval_part else "0.00"
-                        move = move_part.split('=')[-1] if '=' in move_part else ""
-                        nodes = nodes_part.split('=')[-1] if '=' in nodes_part else "0"
+                        move = move_part.split('=')[-1].strip() if '=' in move_part else ""
+                        nodes = nodes_part.split('=')[-1] if '=' in nodes_part else str(engine.nodes_searched)
                         time_str = time_part.split('=')[-1].rstrip('s') if '=' in time_part else "0"
                         
                         # Convert centipawn score
@@ -154,20 +176,33 @@ class BotMoveThread(threading.Thread):
                         except:
                             cp_score = 0
                         
-                        # Calculate nps
+                        # Calculate metrics
                         try:
                             time_ms = int(float(time_str) * 1000)
-                            nps = int(int(nodes) / float(time_str)) if float(time_str) > 0 else 0
+                            if time_ms == 0:
+                                time_ms = max(1, int((time.time() - search_start) * 1000))
+                            nps = int(int(nodes) / (time_ms / 1000.0)) if time_ms > 0 else 0
                         except:
-                            time_ms = 0
+                            time_ms = max(1, int((time.time() - search_start) * 1000))
                             nps = 0
                         
-                        info_line = f"info depth {depth} score cp {cp_score} nodes {nodes} nps {nps} time {time_ms} pv {move}"
+                        # Store depth info
+                        captured_depth_info[depth] = {
+                            'cp': cp_score,
+                            'nodes': nodes,
+                            'nps': nps,
+                            'time': time_ms,
+                            'move': move
+                        }
+                        
+                        # Stockfish-style output
+                        info_line = f"info depth {depth} seldepth {depth} score cp {cp_score} nodes {nodes} nps {nps} time {time_ms} pv {move}"
                         analysis_lines.append(info_line)
+                        
                     except Exception as e:
-                        analysis_lines.append(f"info: {message}")
+                        analysis_lines.append(f"info string {message}")
                 elif "Position is" in message or "Quick move" in message or "Final move" in message:
-                    analysis_lines.append(f"info: {message}")
+                    analysis_lines.append(f"info string {message}")
                 
                 original_print(*args, **kwargs)
             
@@ -178,7 +213,15 @@ class BotMoveThread(threading.Thread):
             try:
                 best_move = engine.get_best_move(self.board, max_time=20.0)
                 if best_move:
-                    analysis_lines.append(f"bestmove {best_move}")
+                    # Final summary line (Stockfish style)
+                    total_time = int((time.time() - search_start) * 1000)
+                    total_nodes = engine.nodes_searched
+                    final_nps = int(total_nodes / (total_time / 1000.0)) if total_time > 0 else 0
+                    
+                    analysis_lines.append(
+                        f"info nodes {total_nodes} nps {final_nps} time {total_time}"
+                    )
+                    analysis_lines.append(f"bestmove {best_move.uci()}")
                     self.result = best_move
             finally:
                 builtins.print = original_print
@@ -187,14 +230,16 @@ class BotMoveThread(threading.Thread):
             return
                 
         except Exception as e:
-            analysis_lines.append(f"error: {str(e)}")
+            analysis_lines.append(f"info string Error: {str(e)}")
             traceback.print_exc()
         
         # Fallback to random move
         legal_moves = list(self.board.legal_moves)
         if legal_moves:
-            analysis_lines.append("info: Using random move")
-            self.result = random.choice(legal_moves)
+            move = random.choice(legal_moves)
+            analysis_lines.append("info string Using random move")
+            analysis_lines.append(f"bestmove {move.uci()}")
+            self.result = move
         else:
             self.result = None
         
@@ -246,7 +291,7 @@ def draw_move_history(screen, board, font):
 
 
 def draw_analysis_panel(screen, font):
-    """Draw analysis panel showing bot's thinking"""
+    """Draw analysis panel showing bot's thinking in Stockfish style"""
     global analysis_lines
     
     panel_rect = pygame.Rect(SIDEBAR_LEFT, ANALYSIS_PANEL_TOP, SIDEBAR_WIDTH - 40, ANALYSIS_PANEL_HEIGHT)
@@ -260,13 +305,13 @@ def draw_analysis_panel(screen, font):
     
     # Analysis info - Use monospace font for better alignment
     try:
-        info_font = pygame.font.SysFont('courier', 14)
+        info_font = pygame.font.SysFont('courier', 13)
     except:
-        info_font = pygame.font.Font(None, 16)
+        info_font = pygame.font.Font(None, 15)
     
     y_offset = ANALYSIS_PANEL_TOP + 45
     x_offset = SIDEBAR_LEFT + 10
-    line_height = 18
+    line_height = 16
     
     if analysis_lines:
         # Show last analysis lines
@@ -274,26 +319,35 @@ def draw_analysis_panel(screen, font):
         display_lines = analysis_lines[-max_lines:]
         
         for line in display_lines:
-            # Color code different types of lines
-            if line.startswith("info depth") and "currmove" in line:
-                color = (200, 200, 200)  # Gray for move exploration
-            elif line.startswith("info depth") and "score" in line:
+            # Color code different types of lines (Stockfish style)
+            if "currmove" in line:
+                # Show the full currmove line with all visited nodes
+                display_line = line
+                color = (180, 180, 180)  # Gray for move exploration
+            elif line.startswith("info depth") and "score cp" in line:
+                # Highlight depth completion lines
+                display_line = line
                 color = (150, 255, 150)  # Green for depth summary
             elif line.startswith("bestmove"):
+                display_line = line
                 color = (255, 255, 100)  # Yellow for best move
-            elif line.startswith("info:"):
+            elif line.startswith("info string"):
+                display_line = line.replace("info string ", "")
                 color = (180, 180, 255)  # Light blue for info
-            elif line.startswith("error"):
-                color = (255, 100, 100)  # Red for errors
+            elif "nodes" in line and "nps" in line and "time" in line:
+                # Summary line
+                display_line = line
+                color = (200, 200, 255)  # Light blue for summary
             else:
+                display_line = line
                 color = (200, 200, 200)  # Default gray
             
             # Truncate long lines
-            max_chars = 60
-            if len(line) > max_chars:
-                line = line[:max_chars-3] + "..."
+            max_chars = 62
+            if len(display_line) > max_chars:
+                display_line = display_line[:max_chars-3] + "..."
             
-            text_surface = info_font.render(line, True, color)
+            text_surface = info_font.render(display_line, True, color)
             screen.blit(text_surface, (x_offset, y_offset))
             y_offset += line_height
     else:
