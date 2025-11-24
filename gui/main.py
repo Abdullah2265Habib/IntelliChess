@@ -5,11 +5,10 @@ import sys
 import os
 import time
 import traceback
+import threading
 
 pygame.init()
 from utils import load_font, loadImages
-from board import displayBoard, drawPieces, highlightValidMoves, drawValidMoves
-from board import MARGIN_TOP, MARGIN_BOTTOM
 from timer import ChessTimer
 from menu import show_menu 
 from turn import getTurnFromButton
@@ -18,17 +17,246 @@ from turn import getTurnFromButton
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from pgn.savePGN import saveGamePGN
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'engine')))
-#from engine.opening_book.opening_book import OpeningBook
 from engine.opening_book.opening_book import OpeningBook
 from engine.endgame.endgame import EndgameEngine
-from engine.engine import get_bot_move
-# Alpha-Beta Pruning imports
-from engine.alphabeta_pruning import minimax_with_alphabeta, return_bestMove_and_bestValue
+from engine.engine import ChessEngine
 
-WIDTH, HEIGHT = 480, 600
-SQUARESIZE = int(WIDTH / 8)  
-BOARD_TOP = MARGIN_TOP 
-BOARD_BOTTOM = BOARD_TOP + 8 * SQUARESIZE
+# New window dimensions
+BOARD_SIZE = 560
+SQUARESIZE = BOARD_SIZE // 8
+SIDEBAR_WIDTH = 450
+WIDTH = BOARD_SIZE + SIDEBAR_WIDTH
+HEIGHT = BOARD_SIZE + 120
+
+# Board positioning
+BOARD_LEFT = 20
+BOARD_TOP = 60
+BOARD_RIGHT = BOARD_LEFT + BOARD_SIZE
+BOARD_BOTTOM = BOARD_TOP + BOARD_SIZE
+
+# Sidebar positioning
+SIDEBAR_LEFT = BOARD_RIGHT + 20
+MOVES_PANEL_TOP = 20
+MOVES_PANEL_HEIGHT = 350
+ANALYSIS_PANEL_TOP = MOVES_PANEL_TOP + MOVES_PANEL_HEIGHT + 20
+ANALYSIS_PANEL_HEIGHT = HEIGHT - ANALYSIS_PANEL_TOP - 20
+
+# Global analysis info
+analysis_lines = []
+
+
+class BotMoveThread(threading.Thread):
+    """Thread to calculate bot move without blocking UI"""
+    def __init__(self, board, opening_book, endgame_engine):
+        super().__init__(daemon=True)
+        self.board = board.copy()
+        self.opening_book = opening_book
+        self.endgame_engine = endgame_engine
+        self.result = None
+        self.finished = False
+        self.is_opening_move = False
+        
+    def run(self):
+        """Calculate the best move in background"""
+        global analysis_lines
+        analysis_lines = []
+        
+        try:
+            # Check for opening book move
+            if self.opening_book and self.board.ply() < 20:
+                opening_move = self.opening_book.get_opening_move(self.board)
+                if opening_move:
+                    analysis_lines.append("info: Using opening book")
+                    self.result = opening_move
+                    self.is_opening_move = True
+                    self.finished = True
+                    return
+            
+            # Check for endgame tablebase move
+            if self.endgame_engine and self.endgame_engine.is_endgame(self.board):
+                endgame_move = self.endgame_engine.get_best_move(self.board)
+                if endgame_move:
+                    analysis_lines.append("info: Using endgame tablebase")
+                    self.result = endgame_move
+                    self.finished = True
+                    return
+            
+            # Use alpha-beta search with detailed output
+            analysis_lines.append("info: Starting engine analysis...")
+            
+            engine = ChessEngine()
+            
+            # Monkey-patch the engine to capture print statements
+            original_print = print
+            def custom_print(*args, **kwargs):
+                message = ' '.join(str(arg) for arg in args)
+                
+                # Parse engine output and convert to UCI-like format
+                if "Depth" in message and "Eval=" in message:
+                    try:
+                        parts = message.split(',')
+                        depth_part = parts[0].strip()
+                        eval_part = parts[1].strip() if len(parts) > 1 else ""
+                        move_part = parts[2].strip() if len(parts) > 2 else ""
+                        nodes_part = parts[3].strip() if len(parts) > 3 else ""
+                        time_part = parts[4].strip() if len(parts) > 4 else ""
+                        
+                        depth = depth_part.split()[-1].rstrip(':')
+                        eval_str = eval_part.split('=')[-1] if '=' in eval_part else "0.00"
+                        move = move_part.split('=')[-1] if '=' in move_part else ""
+                        nodes = nodes_part.split('=')[-1] if '=' in nodes_part else "0"
+                        time_str = time_part.split('=')[-1].rstrip('s') if '=' in time_part else "0"
+                        
+                        # Convert centipawn score
+                        try:
+                            cp_score = int(float(eval_str) * 100)
+                        except:
+                            cp_score = 0
+                        
+                        # Calculate nps
+                        try:
+                            time_ms = int(float(time_str) * 1000)
+                            nps = int(int(nodes) / float(time_str)) if float(time_str) > 0 else 0
+                        except:
+                            time_ms = 0
+                            nps = 0
+                        
+                        info_line = f"info depth {depth} score cp {cp_score} nodes {nodes} nps {nps} time {time_ms} pv {move}"
+                        analysis_lines.append(info_line)
+                    except Exception as e:
+                        analysis_lines.append(f"info: {message}")
+                elif "Position is" in message or "Quick move" in message or "Final move" in message:
+                    analysis_lines.append(f"info: {message}")
+                
+                original_print(*args, **kwargs)
+            
+            # Temporarily replace print
+            import builtins
+            builtins.print = custom_print
+            
+            try:
+                best_move = engine.get_best_move(self.board, max_time=10.0)
+                if best_move:
+                    analysis_lines.append(f"bestmove {best_move}")
+                    self.result = best_move
+            finally:
+                builtins.print = original_print
+            
+            self.finished = True
+            return
+                
+        except Exception as e:
+            analysis_lines.append(f"error: {str(e)}")
+            traceback.print_exc()
+        
+        # Fallback to random move
+        legal_moves = list(self.board.legal_moves)
+        if legal_moves:
+            analysis_lines.append("info: Using random move")
+            self.result = random.choice(legal_moves)
+        else:
+            self.result = None
+        
+        self.finished = True
+
+
+def draw_move_history(screen, board, font):
+    """Draw move history panel on the right side"""
+    panel_rect = pygame.Rect(SIDEBAR_LEFT, MOVES_PANEL_TOP, SIDEBAR_WIDTH - 40, MOVES_PANEL_HEIGHT)
+    pygame.draw.rect(screen, (50, 50, 50), panel_rect, border_radius=10)
+    pygame.draw.rect(screen, (100, 100, 100), panel_rect, 2, border_radius=10)
+    
+    # Title
+    title_font = pygame.font.Font(None, 28)
+    title = title_font.render("Move History", True, (255, 255, 255))
+    screen.blit(title, (SIDEBAR_LEFT + 10, MOVES_PANEL_TOP + 10))
+    
+    # Draw moves
+    move_font = pygame.font.Font(None, 22)
+    moves = list(board.move_stack)
+    
+    # Create temporary board to convert moves to SAN
+    temp_board = chess.Board()
+    move_pairs = []
+    
+    for i, move in enumerate(moves):
+        san_move = temp_board.san(move)
+        temp_board.push(move)
+        
+        if i % 2 == 0:
+            move_pairs.append([f"{i//2 + 1}.", san_move])
+        else:
+            move_pairs[-1].append(san_move)
+    
+    # Display moves
+    y_offset = MOVES_PANEL_TOP + 45
+    x_offset = SIDEBAR_LEFT + 15
+    line_height = 25
+    max_lines = (MOVES_PANEL_HEIGHT - 60) // line_height
+    
+    # Show last moves (scroll from bottom)
+    start_idx = max(0, len(move_pairs) - max_lines)
+    
+    for pair in move_pairs[start_idx:]:
+        move_text = " ".join(pair)
+        text_surface = move_font.render(move_text, True, (220, 220, 220))
+        screen.blit(text_surface, (x_offset, y_offset))
+        y_offset += line_height
+
+
+def draw_analysis_panel(screen, font):
+    """Draw analysis panel showing bot's thinking"""
+    global analysis_lines
+    
+    panel_rect = pygame.Rect(SIDEBAR_LEFT, ANALYSIS_PANEL_TOP, SIDEBAR_WIDTH - 40, ANALYSIS_PANEL_HEIGHT)
+    pygame.draw.rect(screen, (50, 50, 50), panel_rect, border_radius=10)
+    pygame.draw.rect(screen, (100, 100, 100), panel_rect, 2, border_radius=10)
+    
+    # Title
+    title_font = pygame.font.Font(None, 28)
+    title = title_font.render("Engine Analysis", True, (255, 255, 255))
+    screen.blit(title, (SIDEBAR_LEFT + 10, ANALYSIS_PANEL_TOP + 10))
+    
+    # Analysis info - Use monospace font for better alignment
+    try:
+        info_font = pygame.font.SysFont('courier', 14)
+    except:
+        info_font = pygame.font.Font(None, 16)
+    
+    y_offset = ANALYSIS_PANEL_TOP + 45
+    x_offset = SIDEBAR_LEFT + 10
+    line_height = 18
+    
+    if analysis_lines:
+        # Show last analysis lines
+        max_lines = (ANALYSIS_PANEL_HEIGHT - 60) // line_height
+        display_lines = analysis_lines[-max_lines:]
+        
+        for line in display_lines:
+            # Color code different types of lines
+            if line.startswith("info depth"):
+                color = (150, 255, 150)  # Green for depth info
+            elif line.startswith("bestmove"):
+                color = (255, 255, 100)  # Yellow for best move
+            elif line.startswith("info:"):
+                color = (180, 180, 255)  # Light blue for info
+            elif line.startswith("error"):
+                color = (255, 100, 100)  # Red for errors
+            else:
+                color = (200, 200, 200)  # Default gray
+            
+            # Truncate long lines
+            max_chars = 60
+            if len(line) > max_chars:
+                line = line[:max_chars-3] + "..."
+            
+            text_surface = info_font.render(line, True, color)
+            screen.blit(text_surface, (x_offset, y_offset))
+            y_offset += line_height
+    else:
+        text = info_font.render("Waiting for move...", True, (150, 150, 150))
+        screen.blit(text, (x_offset, y_offset))
+
 
 def getGameStatus(board, opening_book=None, endgame_engine=None):
     if board.is_checkmate():
@@ -42,7 +270,6 @@ def getGameStatus(board, opening_book=None, endgame_engine=None):
     else:
         status = "Intellichess - " + ("White's move" if board.turn else "Black's move")
     
-    # Add opening name if in opening phase
     if opening_book and board.ply() < 10:
         try:
             opening_name = opening_book.get_opening_name(board)
@@ -51,7 +278,6 @@ def getGameStatus(board, opening_book=None, endgame_engine=None):
         except:
             pass
     
-    # Add endgame evaluation if in endgame
     if endgame_engine and endgame_engine.is_endgame(board):
         try:
             eval_text = endgame_engine.get_tablebase_evaluation(board)
@@ -62,52 +288,9 @@ def getGameStatus(board, opening_book=None, endgame_engine=None):
     
     return status
 
-def getBotMove(board, opening_book=None, endgame_engine=None):
- 
-     # 1. Opening book moves for first 20 plies
-    if opening_book and board.ply() < 20:
-        opening_move = opening_book.get_opening_move(board)
-        if opening_move:
-            print("Using opening book move")
-            return opening_move
-    # 2. Endgame tablebases
-    if endgame_engine and endgame_engine.is_endgame(board):
-        endgame_move = endgame_engine.get_best_move(board)
-        if endgame_move:
-            print("Using endgame engine move")
-            return endgame_move
-    # 3. Alpha-beta for midgame
-    try:
-        print("Using alpha-beta")
-        # call get_bot_move defensively in case signature is different in your engine
-        try:
-            best_move = get_bot_move(board, opening_book, endgame_engine)
-        except TypeError:
-            best_move = get_bot_move(board)
-        if best_move is not None:
-            return best_move
-    except Exception as e:
-        # Print full traceback + helpful debug info so you can trace "list index out of range"
-        print("Alpha-beta error:", e)
-        traceback.print_exc()
-        try:
-            print("Board FEN:", board.fen())
-            legal_moves = list(board.legal_moves)
-            print("Legal moves count:", len(legal_moves))
-        except Exception:
-            pass
-    
-    # Fallback to random move (guard against empty move list)
-    legal_moves = list(board.legal_moves)
-    if legal_moves:
-        print("Using random move")
-        return random.choice(legal_moves)
-    else:
-        print("No legal moves available to pick as fallback")
-        return None
-
 
 def main():  
+    global analysis_lines
     isGameOver = False
 
     BOT_PLAYS_WHITE = getTurnFromButton()
@@ -118,19 +301,18 @@ def main():
     font = load_font(size=60)
 
     images = loadImages(SQUARESIZE)
-    selected_time = show_menu(screen)  # Lets player pick time before starting
-    timer = ChessTimer(total_time=selected_time)  # Adds countdown clocks
+    selected_time = show_menu(screen)
+    timer = ChessTimer(total_time=selected_time)
 
-    # Adjust Font for timer
-    #font_path = os.path.join("GUI", "font", "Orbitron-Bold.ttf")
+    # Load fonts
     font_dir = os.path.join(os.path.dirname(__file__), "font")
     font_path = os.path.join(font_dir, "Orbitron-Bold.ttf")
 
     if not os.path.exists(font_path):
-        print("Font not found, using default font instead.")
         timer_font = pygame.font.SysFont("impact", 22)
     else:
         timer_font = pygame.font.Font(font_path, 22)
+        
     board = chess.Board()
     selectedSquare = None
     
@@ -144,87 +326,152 @@ def main():
     
     # Initialize endgame engine
     try:
-        # Get the script's directory and construct absolute path
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        # Go up one level from gui/ to project root, then to engine/tablebases/syzygy
         tablebase_path = os.path.join(script_dir, "..", "engine", "tablebases", "syzygy")
         tablebase_path = os.path.normpath(tablebase_path)
-        
-        print(f"Looking for tablebases at: {tablebase_path}")
         endgame_engine = EndgameEngine(tablebase_path=tablebase_path)
     except Exception as e:
         endgame_engine = None
         print("Endgame engine not available:", e)
     
     running = True
+    bot_thread = None
+    waiting_for_bot = False
 
     while running:
-        BACKGROUND_COLOR = (40, 40, 40)
+        BACKGROUND_COLOR = (30, 30, 30)
         screen.fill(BACKGROUND_COLOR)
 
-        # Draw everything
-        displayBoard(screen)
+        # Draw board
+        for rank in range(8):
+            for file in range(8):
+                color = (238, 238, 210) if (rank + file) % 2 == 0 else (118, 150, 86)
+                pygame.draw.rect(
+                    screen, color,
+                    pygame.Rect(
+                        BOARD_LEFT + file * SQUARESIZE,
+                        BOARD_TOP + rank * SQUARESIZE,
+                        SQUARESIZE, SQUARESIZE
+                    )
+                )
+        
+        # Draw highlights and pieces
         if selectedSquare is not None:
-            highlightValidMoves(screen, selectedSquare)
-            drawValidMoves(screen, board, selectedSquare)
-        drawPieces(screen, board, images)
+            col = chess.square_file(selectedSquare)
+            row = 7 - chess.square_rank(selectedSquare)
+            surface = pygame.Surface((SQUARESIZE, SQUARESIZE), pygame.SRCALPHA)
+            pygame.draw.rect(surface, (255, 255, 0, 100), (0, 0, SQUARESIZE, SQUARESIZE))
+            screen.blit(surface, (BOARD_LEFT + col * SQUARESIZE, BOARD_TOP + row * SQUARESIZE))
+            
+            # Draw valid moves
+            for move in board.legal_moves:
+                if move.from_square == selectedSquare:
+                    col = chess.square_file(move.to_square)
+                    row = 7 - chess.square_rank(move.to_square)
+                    surface = pygame.Surface((SQUARESIZE, SQUARESIZE), pygame.SRCALPHA)
+                    pygame.draw.circle(
+                        surface, (0, 0, 0, 80),
+                        (SQUARESIZE // 2, SQUARESIZE // 2),
+                        SQUARESIZE // 6
+                    )
+                    screen.blit(surface, (BOARD_LEFT + col * SQUARESIZE, BOARD_TOP + row * SQUARESIZE))
+        
+        # Draw pieces
+        for square in chess.SQUARES:
+            piece = board.piece_at(square)
+            if piece:
+                col = chess.square_file(square)
+                row = 7 - chess.square_rank(square)
+                img_or_text = images.get(piece.symbol())
+                x_pos = BOARD_LEFT + col * SQUARESIZE
+                y_pos = BOARD_TOP + row * SQUARESIZE
+                
+                if isinstance(img_or_text, pygame.Surface):
+                    screen.blit(img_or_text, (x_pos, y_pos))
+                else:
+                    text_rect = img_or_text.get_rect(
+                        center=(x_pos + SQUARESIZE // 2, y_pos + SQUARESIZE // 2)
+                    )
+                    screen.blit(img_or_text, text_rect)
 
-        # Update and display Timers
+        # Draw timers
+        white_time = f"Player: {int(timer.remaining_white // 60):02}:{int(timer.remaining_white % 60):02}"
+        black_time = f"Computer: {int(timer.remaining_black // 60):02}:{int(timer.remaining_black % 60):02}"
+        
+        white_surface = timer_font.render(white_time, True, (255, 255, 255))
+        black_surface = timer_font.render(black_time, True, (255, 255, 255))
+        
+        white_rect = white_surface.get_rect(center=(BOARD_LEFT + BOARD_SIZE // 2, BOARD_BOTTOM + 40))
+        black_rect = black_surface.get_rect(center=(BOARD_LEFT + BOARD_SIZE // 2, BOARD_TOP - 30))
+        
+        for rect in [white_rect, black_rect]:
+            bg_rect = pygame.Rect(rect.left - 10, rect.top - 5, rect.width + 20, rect.height + 10)
+            pygame.draw.rect(screen, (50, 50, 50), bg_rect, border_radius=8)
+        
+        if timer.text_color == "white":
+            active_rect = pygame.Rect(white_rect.left - 10, white_rect.top - 5, 
+                                     white_rect.width + 20, white_rect.height + 10)
+        else:
+            active_rect = pygame.Rect(black_rect.left - 10, black_rect.top - 5,
+                                     black_rect.width + 20, black_rect.height + 10)
+        pygame.draw.rect(screen, (70, 70, 70), active_rect, border_radius=8)
+        
+        screen.blit(white_surface, white_rect)
+        screen.blit(black_surface, black_rect)
+
+        # Draw panels
+        draw_move_history(screen, board, font)
+        draw_analysis_panel(screen, font)
+
+        if waiting_for_bot:
+            thinking = timer_font.render("Thinking...", True, (255, 200, 0))
+            screen.blit(thinking, (BOARD_LEFT + 10, BOARD_TOP - 30))
+
         timer.update()
-        timer.draw(screen, timer_font)
 
-        # Check for time-out: if either player's time runs out, end the game
         if timer.remaining_white <= 0 or timer.remaining_black <= 0:
             winner = "Black" if timer.remaining_white <= 0 else "White"
             text = timer_font.render(f"Time Out! {winner} Wins!", False, (230, 210, 40))
             screen.blit(text, (WIDTH // 2 - text.get_width() // 2, HEIGHT // 2))
             pygame.display.flip()
-            time.sleep(3)  # Pause to display the message
-
-            # Save the PGN before exiting
+            time.sleep(3)
             saveGamePGN(board)
-            running = False  # End the game
-            continue  # Exit to the next loop iteration to stop the game
+            running = False
+            continue
 
-        # Update the window title
         status_text = getGameStatus(board, opening_book, endgame_engine)
         pygame.display.set_caption(status_text)
-
-        # Display endgame info if in endgame
-        if endgame_engine and endgame_engine.is_endgame(board):
-            try:
-                eval_text = endgame_engine.get_tablebase_evaluation(board)
-                if eval_text != "Unknown":
-                    eval_surface = timer_font.render(f"Tablebase: {eval_text}", True, (100, 200, 100))
-                    screen.blit(eval_surface, (10, HEIGHT - 30))
-            except:
-                pass
 
         pygame.display.flip()
         clock.tick(60)
 
-        # Event handling loop
+        if waiting_for_bot and bot_thread and bot_thread.finished:
+            move = bot_thread.result
+            if move:
+                board.push(move)
+                timer.switch_turn()
+            selectedSquare = None
+            waiting_for_bot = False
+            bot_thread = None
+
         for event in pygame.event.get():
             if board.is_game_over() and not isGameOver:
-                saveGamePGN(board)  # Save PGN when the game is over (checkmate, stalemate, etc.)
+                saveGamePGN(board)
                 isGameOver = True
 
             if event.type == pygame.QUIT:
                 running = False
 
-            elif event.type == pygame.MOUSEBUTTONDOWN and not board.is_game_over():
+            elif event.type == pygame.MOUSEBUTTONDOWN and not board.is_game_over() and not waiting_for_bot:
                 x, y = event.pos 
 
-                # Margins checks: Ignore clicks outside the chessboard area
-                if not (BOARD_TOP <= y <= BOARD_BOTTOM):
+                if not (BOARD_LEFT <= x <= BOARD_RIGHT and BOARD_TOP <= y <= BOARD_BOTTOM):
                     continue
 
-                # Adjust Y for the top margin
-                col = x // SQUARESIZE
+                col = (x - BOARD_LEFT) // SQUARESIZE
                 row = (y - BOARD_TOP) // SQUARESIZE
                 square = chess.square(col, 7 - row)
 
-                # Select or move piece
                 if selectedSquare is None:
                     if board.piece_at(square) and board.piece_at(square).color == board.turn:
                         selectedSquare = square
@@ -250,36 +497,19 @@ def main():
                 timer = ChessTimer(total_time=selected_time)
                 selectedSquare = None
                 isGameOver = False
-        if not board.is_game_over():
-            if board.turn == chess.WHITE and BOT_PLAYS_WHITE:
-                pygame.time.wait(300)
-                move = getBotMove(board, opening_book, endgame_engine)
-                if move:
-                    board.push(move)
-                    timer.switch_turn()
-                selectedSquare = None
-            elif board.turn == chess.BLACK and not BOT_PLAYS_WHITE:
-                start_think = time.time()
-                think_duration = random.uniform(1, 3)
- 
-                while time.time() - start_think < think_duration:
-                    BACKGROUND_COLOR = (40, 40, 40)
-                    screen.fill(BACKGROUND_COLOR)
- 
-                    displayBoard(screen)  
-                    drawPieces(screen, board, images)  
-                    timer.update()
-                    timer.draw(screen, timer_font)  
-                    pygame.display.flip()
-                    clock.tick(30)
-                move = getBotMove(board, opening_book, endgame_engine)
-                if move:
-                    board.push(move)
-                    timer.switch_turn()
-                selectedSquare = None
+                waiting_for_bot = False
+                bot_thread = None
+                analysis_lines = []
+
+        if not board.is_game_over() and not waiting_for_bot:
+            if (board.turn == chess.WHITE and BOT_PLAYS_WHITE) or \
+               (board.turn == chess.BLACK and not BOT_PLAYS_WHITE):
+                
+                bot_thread = BotMoveThread(board, opening_book, endgame_engine)
+                bot_thread.start()
+                waiting_for_bot = True
 
     pygame.quit()
-
 
 
 if __name__ == "__main__":
