@@ -44,6 +44,10 @@ ANALYSIS_PANEL_HEIGHT = HEIGHT - ANALYSIS_PANEL_TOP - 20
 # Global analysis info
 analysis_lines = []
 
+# Scroll positions
+moves_scroll_offset = 0
+analysis_scroll_offset = 0
+
 
 class AnalysisEngine(ChessEngine):
     """Extended chess engine that outputs detailed analysis"""
@@ -53,54 +57,102 @@ class AnalysisEngine(ChessEngine):
         self.nodes_searched = 0
         self.start_time = None
         
-    def alpha_beta_root(self, board, depth, alpha, beta, start_time, max_time):
-        """Override to show all moves being explored in Stockfish style"""
+    def iterative_deepening_search(self, board, max_time):
+        """Override to capture depth output"""
         global analysis_lines
         
-        best_move = None
-        best_value = float('-inf')
-        moves = self.order_moves(board, list(board.legal_moves))
+        start_time = time.time()
+        self.best_move_found = None
+        self.nodes_searched = 0
         
-        self.current_depth = depth
-        self.start_time = start_time
+        legal_moves = list(board.legal_moves)
+        if not legal_moves:
+            return None
         
-        # Keep track of how often we update (to avoid flooding)
-        last_update = time.time()
+        self.best_move_found = legal_moves[0]
+        best_eval = 0
         
-        for idx, move in enumerate(moves, 1):
-            # Stockfish-style currmove output - show every move being explored
-            current_time = time.time()
-            if current_time - last_update > 0.05:  # Update every 50ms minimum
-                elapsed_ms = int((current_time - start_time) * 1000)
-                nps = int(self.nodes_searched / (elapsed_ms / 1000.0)) if elapsed_ms > 0 else 0
-                analysis_lines.append(
-                    f"info depth {depth} currmove {move.uci()} currmovenumber {idx}/{len(moves)} nodes {self.nodes_searched} nps {nps}"
-                )
-                last_update = current_time
+        # Aspiration window parameters
+        window_size = 50
+        
+        for depth in range(1, 50):
+            elapsed = time.time() - start_time
             
-            if time.time() - start_time >= max_time * 0.95:
-                raise TimeoutError()
+            if elapsed >= max_time * 0.90:
+                break
             
-            board.push(move)
+            # Set aspiration window around previous eval
+            alpha = best_eval - window_size
+            beta = best_eval + window_size
+            
             try:
-                value = -self.alpha_beta(board, depth - 1, -beta, -alpha, start_time, max_time)
-            finally:
-                board.pop()
-            
-            if value > best_value:
-                best_value = value
-                best_move = move
-            
-            alpha = max(alpha, value)
-            if alpha >= beta:
+                # Try search with narrow window
+                eval_score, move = self.pvs_root(
+                    board, depth, alpha, beta, start_time, max_time
+                )
+                
+                # If we failed high or low, research with full window
+                if eval_score <= alpha or eval_score >= beta:
+                    eval_score, move = self.pvs_root(
+                        board, depth, float('-inf'), float('inf'), 
+                        start_time, max_time
+                    )
+                
+                if move is not None:
+                    self.best_move_found = move
+                    best_eval = eval_score
+                    
+                    elapsed = time.time() - start_time
+                    
+                    # Capture the depth output
+                    depth_info = (f"Depth {depth}: Eval={eval_score:+.2f}, "
+                          f"Move={move}, Nodes={self.nodes_searched}, "
+                          f"Time={elapsed:.2f}s, NPS={int(self.nodes_searched/elapsed) if elapsed > 0 else 0}")
+                    
+                    print(depth_info)
+                    
+                    # Add to analysis lines
+                    analysis_lines.append(f"info string {depth_info}")
+                    
+                    # Also add UCI-style format
+                    # Handle mate scores (infinity values)
+                    if abs(eval_score) > 9000:
+                        # Mate score
+                        mate_in = int((10000 - abs(eval_score)) / 2) if abs(eval_score) < 10000 else 1
+                        score_str = f"mate {mate_in if eval_score > 0 else -mate_in}"
+                    else:
+                        # Normal centipawn score
+                        cp_score = int(eval_score * 100)
+                        score_str = f"cp {cp_score}"
+                    
+                    time_ms = int(elapsed * 1000)
+                    nps = int(self.nodes_searched/elapsed) if elapsed > 0 else 0
+                    analysis_lines.append(
+                        f"info depth {depth} score {score_str} nodes {self.nodes_searched} nps {nps} time {time_ms} pv {move.uci()}"
+                    )
+                
+                # Mate found
+                if abs(eval_score) > 9000:
+                    mate_msg = f"Found forced mate! Eval: {eval_score}"
+                    print(mate_msg)
+                    analysis_lines.append(f"info string {mate_msg}")
+                    break
+                    
+            except TimeoutError:
+                timeout_msg = f"Search stopped at depth {depth} due to time limit"
+                print(timeout_msg)
+                analysis_lines.append(f"info string {timeout_msg}")
                 break
         
-        return best_value, best_move
-    
-    def alpha_beta(self, board, depth, alpha, beta, start_time, max_time):
-        """Override to track nodes"""
-        self.nodes_searched += 1
-        return super().alpha_beta(board, depth, alpha, beta, start_time, max_time)
+        total_time = time.time() - start_time
+        nps = int(self.nodes_searched / total_time) if total_time > 0 else 0
+        
+        final_msg = (f"Final move: {self.best_move_found}, Total nodes: {self.nodes_searched}, "
+              f"Time: {total_time:.2f}s, NPS: {nps}")
+        print(final_msg)
+        analysis_lines.append(f"info string {final_msg}")
+        
+        return self.best_move_found
 
 
 class BotMoveThread(threading.Thread):
@@ -141,96 +193,23 @@ class BotMoveThread(threading.Thread):
                     self.finished = True
                     return
             
-            # Use alpha-beta search with detailed output
+            # Use engine with analysis output
             analysis_lines.append("info string Starting engine analysis...")
             
             engine = AnalysisEngine()
-            search_start = time.time()
+            best_move = engine.get_best_move(self.board, max_time=20.0)
             
-            # Monkey-patch the engine to capture print statements
-            original_print = print
-            captured_depth_info = {}
-            
-            def custom_print(*args, **kwargs):
-                message = ' '.join(str(arg) for arg in args)
-                
-                # Parse engine output and convert to UCI-like format
-                if "Depth" in message and "Eval=" in message:
-                    try:
-                        parts = message.split(',')
-                        depth_part = parts[0].strip()
-                        eval_part = parts[1].strip() if len(parts) > 1 else ""
-                        move_part = parts[2].strip() if len(parts) > 2 else ""
-                        nodes_part = parts[3].strip() if len(parts) > 3 else ""
-                        time_part = parts[4].strip() if len(parts) > 4 else ""
-                        
-                        depth = depth_part.split()[-1].rstrip(':')
-                        eval_str = eval_part.split('=')[-1] if '=' in eval_part else "0.00"
-                        move = move_part.split('=')[-1].strip() if '=' in move_part else ""
-                        nodes = nodes_part.split('=')[-1] if '=' in nodes_part else str(engine.nodes_searched)
-                        time_str = time_part.split('=')[-1].rstrip('s') if '=' in time_part else "0"
-                        
-                        # Convert centipawn score
-                        try:
-                            cp_score = int(float(eval_str) * 100)
-                        except:
-                            cp_score = 0
-                        
-                        # Calculate metrics
-                        try:
-                            time_ms = int(float(time_str) * 1000)
-                            if time_ms == 0:
-                                time_ms = max(1, int((time.time() - search_start) * 1000))
-                            nps = int(int(nodes) / (time_ms / 1000.0)) if time_ms > 0 else 0
-                        except:
-                            time_ms = max(1, int((time.time() - search_start) * 1000))
-                            nps = 0
-                        
-                        # Store depth info
-                        captured_depth_info[depth] = {
-                            'cp': cp_score,
-                            'nodes': nodes,
-                            'nps': nps,
-                            'time': time_ms,
-                            'move': move
-                        }
-                        
-                        # Stockfish-style output
-                        info_line = f"info depth {depth} seldepth {depth} score cp {cp_score} nodes {nodes} nps {nps} time {time_ms} pv {move}"
-                        analysis_lines.append(info_line)
-                        
-                    except Exception as e:
-                        analysis_lines.append(f"info string {message}")
-                elif "Position is" in message or "Quick move" in message or "Final move" in message:
-                    analysis_lines.append(f"info string {message}")
-                
-                original_print(*args, **kwargs)
-            
-            # Temporarily replace print
-            import builtins
-            builtins.print = custom_print
-            
-            try:
-                best_move = engine.get_best_move(self.board, max_time=20.0)
-                if best_move:
-                    # Final summary line (Stockfish style)
-                    total_time = int((time.time() - search_start) * 1000)
-                    total_nodes = engine.nodes_searched
-                    final_nps = int(total_nodes / (total_time / 1000.0)) if total_time > 0 else 0
-                    
-                    analysis_lines.append(
-                        f"info nodes {total_nodes} nps {final_nps} time {total_time}"
-                    )
-                    analysis_lines.append(f"bestmove {best_move.uci()}")
-                    self.result = best_move
-            finally:
-                builtins.print = original_print
+            if best_move:
+                analysis_lines.append(f"bestmove {best_move.uci()}")
+                self.result = best_move
             
             self.finished = True
             return
                 
         except Exception as e:
-            analysis_lines.append(f"info string Error: {str(e)}")
+            error_msg = f"Error: {str(e)}"
+            analysis_lines.append(f"info string {error_msg}")
+            print(error_msg)
             traceback.print_exc()
         
         # Fallback to random move
@@ -246,8 +225,34 @@ class BotMoveThread(threading.Thread):
         self.finished = True
 
 
-def draw_move_history(screen, board, font):
-    """Draw move history panel on the right side"""
+def wrap_text(text, font, max_width):
+    """Wrap text to fit within max_width"""
+    words = text.split(' ')
+    lines = []
+    current_line = []
+    
+    for word in words:
+        test_line = ' '.join(current_line + [word])
+        test_surface = font.render(test_line, True, (255, 255, 255))
+        
+        if test_surface.get_width() <= max_width:
+            current_line.append(word)
+        else:
+            if current_line:
+                lines.append(' '.join(current_line))
+                current_line = [word]
+            else:
+                # Word is too long, split it
+                lines.append(word)
+    
+    if current_line:
+        lines.append(' '.join(current_line))
+    
+    return lines
+
+
+def draw_move_history(screen, board, font, scroll_offset):
+    """Draw move history panel with scrolling"""
     panel_rect = pygame.Rect(SIDEBAR_LEFT, MOVES_PANEL_TOP, SIDEBAR_WIDTH - 40, MOVES_PANEL_HEIGHT)
     pygame.draw.rect(screen, (50, 50, 50), panel_rect, border_radius=10)
     pygame.draw.rect(screen, (100, 100, 100), panel_rect, 2, border_radius=10)
@@ -274,24 +279,52 @@ def draw_move_history(screen, board, font):
         else:
             move_pairs[-1].append(san_move)
     
-    # Display moves
-    y_offset = MOVES_PANEL_TOP + 45
-    x_offset = SIDEBAR_LEFT + 15
+    # Create a surface for scrolling
+    content_y = MOVES_PANEL_TOP + 45
     line_height = 25
-    max_lines = (MOVES_PANEL_HEIGHT - 60) // line_height
+    panel_height = MOVES_PANEL_HEIGHT - 60
     
-    # Show last moves (scroll from bottom)
-    start_idx = max(0, len(move_pairs) - max_lines)
+    # Calculate total content height
+    total_content_height = len(move_pairs) * line_height
+    max_scroll = max(0, total_content_height - panel_height)
     
-    for pair in move_pairs[start_idx:]:
+    # Clamp scroll offset
+    scroll_offset = max(0, min(scroll_offset, max_scroll))
+    
+    # Create clipping rect for scrollable area
+    clip_rect = pygame.Rect(SIDEBAR_LEFT + 10, content_y, SIDEBAR_WIDTH - 60, panel_height)
+    screen.set_clip(clip_rect)
+    
+    # Draw moves with scroll offset
+    y_offset = content_y - scroll_offset
+    x_offset = SIDEBAR_LEFT + 15
+    
+    for pair in move_pairs:
         move_text = " ".join(pair)
         text_surface = move_font.render(move_text, True, (220, 220, 220))
         screen.blit(text_surface, (x_offset, y_offset))
         y_offset += line_height
+    
+    # Remove clipping
+    screen.set_clip(None)
+    
+    # Draw scrollbar if needed
+    if total_content_height > panel_height:
+        scrollbar_height = max(20, int(panel_height * panel_height / total_content_height))
+        scrollbar_y = content_y + int(scroll_offset * panel_height / total_content_height)
+        scrollbar_rect = pygame.Rect(
+            SIDEBAR_LEFT + SIDEBAR_WIDTH - 50,
+            scrollbar_y,
+            8,
+            scrollbar_height
+        )
+        pygame.draw.rect(screen, (150, 150, 150), scrollbar_rect, border_radius=4)
+    
+    return scroll_offset
 
 
-def draw_analysis_panel(screen, font):
-    """Draw analysis panel showing bot's thinking in Stockfish style"""
+def draw_analysis_panel(screen, font, scroll_offset):
+    """Draw analysis panel with text wrapping and scrolling"""
     global analysis_lines
     
     panel_rect = pygame.Rect(SIDEBAR_LEFT, ANALYSIS_PANEL_TOP, SIDEBAR_WIDTH - 40, ANALYSIS_PANEL_HEIGHT)
@@ -303,56 +336,86 @@ def draw_analysis_panel(screen, font):
     title = title_font.render("Engine Analysis", True, (255, 255, 255))
     screen.blit(title, (SIDEBAR_LEFT + 10, ANALYSIS_PANEL_TOP + 10))
     
-    # Analysis info - Use monospace font for better alignment
+    # Analysis info - Use smaller font for better fit
     try:
-        info_font = pygame.font.SysFont('courier', 13)
+        info_font = pygame.font.SysFont('courier', 12)
     except:
-        info_font = pygame.font.Font(None, 15)
+        info_font = pygame.font.Font(None, 14)
     
-    y_offset = ANALYSIS_PANEL_TOP + 45
+    content_y = ANALYSIS_PANEL_TOP + 45
     x_offset = SIDEBAR_LEFT + 10
     line_height = 16
+    panel_height = ANALYSIS_PANEL_HEIGHT - 60
+    max_text_width = SIDEBAR_WIDTH - 70
     
     if analysis_lines:
-        # Show last analysis lines
-        max_lines = (ANALYSIS_PANEL_HEIGHT - 60) // line_height
-        display_lines = analysis_lines[-max_lines:]
+        # Process all lines and wrap them
+        wrapped_lines = []
         
-        for line in display_lines:
-            # Color code different types of lines (Stockfish style)
+        for line in analysis_lines:
+            # Determine color based on line type
             if "currmove" in line:
-                # Show the full currmove line with all visited nodes
-                display_line = line
-                color = (180, 180, 180)  # Gray for move exploration
+                color = (180, 180, 180)
             elif line.startswith("info depth") and "score cp" in line:
-                # Highlight depth completion lines
-                display_line = line
-                color = (150, 255, 150)  # Green for depth summary
+                color = (150, 255, 150)
             elif line.startswith("bestmove"):
-                display_line = line
-                color = (255, 255, 100)  # Yellow for best move
+                color = (255, 255, 100)
             elif line.startswith("info string"):
-                display_line = line.replace("info string ", "")
-                color = (180, 180, 255)  # Light blue for info
+                line = line.replace("info string ", "")
+                color = (180, 180, 255)
             elif "nodes" in line and "nps" in line and "time" in line:
-                # Summary line
-                display_line = line
-                color = (200, 200, 255)  # Light blue for summary
+                color = (200, 200, 255)
             else:
-                display_line = line
-                color = (200, 200, 200)  # Default gray
+                color = (200, 200, 200)
             
-            # Truncate long lines
-            max_chars = 62
-            if len(display_line) > max_chars:
-                display_line = display_line[:max_chars-3] + "..."
-            
-            text_surface = info_font.render(display_line, True, color)
+            # Wrap long lines
+            text_lines = wrap_text(line, info_font, max_text_width)
+            for text_line in text_lines:
+                wrapped_lines.append((text_line, color))
+        
+        # Calculate total content height
+        total_content_height = len(wrapped_lines) * line_height
+        max_scroll = max(0, total_content_height - panel_height)
+        
+        # Clamp scroll offset
+        scroll_offset = max(0, min(scroll_offset, max_scroll))
+        
+        # Auto-scroll to bottom when new content arrives
+        if len(wrapped_lines) > 0:
+            scroll_offset = max_scroll
+        
+        # Create clipping rect for scrollable area
+        clip_rect = pygame.Rect(SIDEBAR_LEFT + 10, content_y, SIDEBAR_WIDTH - 60, panel_height)
+        screen.set_clip(clip_rect)
+        
+        # Draw wrapped lines with scroll offset
+        y_offset = content_y - scroll_offset
+        
+        for text_line, color in wrapped_lines:
+            text_surface = info_font.render(text_line, True, color)
             screen.blit(text_surface, (x_offset, y_offset))
             y_offset += line_height
+        
+        # Remove clipping
+        screen.set_clip(None)
+        
+        # Draw scrollbar if needed
+        if total_content_height > panel_height:
+            scrollbar_height = max(20, int(panel_height * panel_height / total_content_height))
+            scrollbar_y = content_y + int(scroll_offset * panel_height / total_content_height)
+            scrollbar_rect = pygame.Rect(
+                SIDEBAR_LEFT + SIDEBAR_WIDTH - 50,
+                scrollbar_y,
+                8,
+                scrollbar_height
+            )
+            pygame.draw.rect(screen, (150, 150, 150), scrollbar_rect, border_radius=4)
+        
+        return scroll_offset
     else:
         text = info_font.render("Waiting for move...", True, (150, 150, 150))
-        screen.blit(text, (x_offset, y_offset))
+        screen.blit(text, (x_offset, content_y))
+        return 0
 
 
 def getGameStatus(board, opening_book=None, endgame_engine=None):
@@ -387,7 +450,7 @@ def getGameStatus(board, opening_book=None, endgame_engine=None):
 
 
 def main():  
-    global analysis_lines
+    global analysis_lines, moves_scroll_offset, analysis_scroll_offset
     isGameOver = False
 
     BOT_PLAYS_WHITE = getTurnFromButton()
@@ -434,6 +497,10 @@ def main():
     running = True
     bot_thread = None
     waiting_for_bot = False
+    
+    # Reset scroll positions
+    moves_scroll_offset = 0
+    analysis_scroll_offset = 0
 
     while running:
         BACKGROUND_COLOR = (30, 30, 30)
@@ -516,9 +583,9 @@ def main():
         screen.blit(white_surface, white_rect)
         screen.blit(black_surface, black_rect)
 
-        # Draw panels
-        draw_move_history(screen, board, font)
-        draw_analysis_panel(screen, font)
+        # Draw panels with scrolling
+        moves_scroll_offset = draw_move_history(screen, board, font, moves_scroll_offset)
+        analysis_scroll_offset = draw_analysis_panel(screen, font, analysis_scroll_offset)
 
         if waiting_for_bot:
             thinking = timer_font.render("Thinking...", True, (255, 200, 0))
@@ -559,6 +626,20 @@ def main():
             if event.type == pygame.QUIT:
                 running = False
 
+            elif event.type == pygame.MOUSEWHEEL:
+                # Handle scrolling for both panels
+                mouse_x, mouse_y = pygame.mouse.get_pos()
+                
+                # Check if mouse is over moves panel
+                if (SIDEBAR_LEFT <= mouse_x <= SIDEBAR_LEFT + SIDEBAR_WIDTH and
+                    MOVES_PANEL_TOP <= mouse_y <= MOVES_PANEL_TOP + MOVES_PANEL_HEIGHT):
+                    moves_scroll_offset -= event.y * 25
+                
+                # Check if mouse is over analysis panel
+                elif (SIDEBAR_LEFT <= mouse_x <= SIDEBAR_LEFT + SIDEBAR_WIDTH and
+                      ANALYSIS_PANEL_TOP <= mouse_y <= ANALYSIS_PANEL_TOP + ANALYSIS_PANEL_HEIGHT):
+                    analysis_scroll_offset -= event.y * 25
+
             elif event.type == pygame.MOUSEBUTTONDOWN and not board.is_game_over() and not waiting_for_bot:
                 x, y = event.pos 
 
@@ -597,6 +678,8 @@ def main():
                 waiting_for_bot = False
                 bot_thread = None
                 analysis_lines = []
+                moves_scroll_offset = 0
+                analysis_scroll_offset = 0
 
         if not board.is_game_over() and not waiting_for_bot:
             if (board.turn == chess.WHITE and BOT_PLAYS_WHITE) or \
