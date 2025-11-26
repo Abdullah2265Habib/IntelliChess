@@ -256,7 +256,7 @@ class AnalysisViewer:
         arrow_size = 25
         
         arrow_points = [
-            (end_x_rel, end_y_rel),
+            (end_x_rel, end_y_rel+10),
             (end_x_rel - arrow_size * math.cos(angle - math.pi/6),
              end_y_rel - arrow_size * math.sin(angle - math.pi/6)),
             (end_x_rel - arrow_size * math.cos(angle + math.pi/6),
