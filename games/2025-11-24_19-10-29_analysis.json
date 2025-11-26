@@ -1,0 +1,352 @@
+{
+  "game_info": {
+    "event": "Bullet: 1 min",
+    "date": "2025.11.24",
+    "result": "1-0"
+  },
+  "move_classifications": {
+    "brilliant": 1,
+    "great": 7,
+    "best": 7,
+    "excellent": 0,
+    "good": 0,
+    "book": 0,
+    "inaccuracy": 0,
+    "mistake": 0,
+    "blunder": 0
+  },
+  "estimated_elo": 1690,
+  "detailed_moves": [
+    {
+      "move_number": 1,
+      "move": "e2e4",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "eval": 0.19,
+      "classification": "great",
+      "best_move": "c2c4",
+      "alternative_lines": [
+        {
+          "moves": "c2c4 e7e5 g2g3 g8f6 f1g2 f8c5 d2d3 e8h8 b1c3 f8e8",
+          "cp": 19
+        },
+        {
+          "moves": "e2e4 e7e5 g1f3 b8c6 f1b5 g8f6 e1h1 f6e4 f1e1 e4d6",
+          "cp": 17
+        },
+        {
+          "moves": "g1f3 e7e6 e2e4 d7d5 e4d5 e6d5 d2d4 b8c6 f1e2 f8d6",
+          "cp": 14
+        }
+      ]
+    },
+    {
+      "move_number": 2,
+      "move": "d7d5",
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+      "eval": 0.15,
+      "classification": "great",
+      "best_move": "e7e5",
+      "alternative_lines": [
+        {
+          "moves": "e7e5 g1f3 b8c6 f1b5 g8f6 e1h1 f6e4 f1e1 e4d6 f3e5",
+          "cp": 15
+        },
+        {
+          "moves": "c7c5 b1c3 d7d6 g1f3 a7a6 d2d4 c5d4 f3d4 g8f6 f1e2",
+          "cp": 18
+        },
+        {
+          "moves": "c7c6 d2d4 d7d5 e4e5 c8f5 c2c3 e7e6 f1e2 c6c5 g1f3",
+          "cp": 20
+        }
+      ]
+    },
+    {
+      "move_number": 3,
+      "move": "e4d5",
+      "fen": "rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+      "eval": 0.71,
+      "classification": "best",
+      "best_move": "e4d5",
+      "alternative_lines": [
+        {
+          "moves": "e4d5 g8f6 d2d4 f6d5 g1f3 e7e6 f1e2 c7c5 e1h1 b8c6",
+          "cp": 71
+        },
+        {
+          "moves": "e4e5 c7c5 c2c3 c8f5 d2d4 b8c6 f1b5 e7e6 g1e2 a8c8",
+          "cp": 4
+        },
+        {
+          "moves": "d2d3 d5e4 d3e4 d8d1 e1d1 b8c6 g1f3 g8f6 f1d3 e7e5",
+          "cp": 3
+        }
+      ]
+    },
+    {
+      "move_number": 4,
+      "move": "d8d5",
+      "fen": "rnbqkbnr/ppp1pppp/8/3P4/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 2",
+      "eval": 0.51,
+      "classification": "great",
+      "best_move": "g8f6",
+      "alternative_lines": [
+        {
+          "moves": "g8f6 g1f3 f6d5 d2d4 e7e6 f1e2 c7c5 e1h1 c5d4 f3d4",
+          "cp": 51
+        },
+        {
+          "moves": "d8d5 b1c3 d5d6 g1f3 b8c6 d2d4 g8f6 c3b5 d6d8 c2c4",
+          "cp": 62
+        },
+        {
+          "moves": "c7c6 d5c6 b8c6 f1c4 g8f6 g1f3 c8g4 e1h1 e7e5 h2h3",
+          "cp": 66
+        }
+      ]
+    },
+    {
+      "move_number": 5,
+      "move": "b1c3",
+      "fen": "rnb1kbnr/ppp1pppp/8/3q4/8/8/PPPP1PPP/RNBQKBNR w KQkq - 0 3",
+      "eval": 0.52,
+      "classification": "best",
+      "best_move": "b1c3",
+      "alternative_lines": [
+        {
+          "moves": "b1c3 d5d6 g1f3 g8f6 d2d4 c7c6 f1d3 c8g4 c1e3 b8d7",
+          "cp": 52
+        },
+        {
+          "moves": "g1f3 c8g4 b1c3 d5e6 d1e2 e6e2 f1e2 b8c6 h2h3 g4h5",
+          "cp": 30
+        },
+        {
+          "moves": "d2d4 e7e5 b1c3 d5d4 d1d4 e5d4 c3b5 f8b4 c1d2 b4d2",
+          "cp": 16
+        }
+      ]
+    },
+    {
+      "move_number": 6,
+      "move": "d5e5",
+      "fen": "rnb1kbnr/ppp1pppp/8/3q4/8/2N5/PPPP1PPP/R1BQKBNR b KQkq - 1 3",
+      "eval": 0.62,
+      "classification": "great",
+      "best_move": "d5a5",
+      "alternative_lines": [
+        {
+          "moves": "d5a5 d2d4 g8f6 g1f3 c8f5 f3e5 c7c6 f1c4 e7e6 g2g4",
+          "cp": 62
+        },
+        {
+          "moves": "d5d6 g1f3 g8f6 d2d4 g7g6 f1e2 a7a6 c1e3 f8g7 d1d2",
+          "cp": 64
+        },
+        {
+          "moves": "d5d8 d2d4 g8f6 g1f3 e7e6 c1g5 f8e7 d1d3 b8d7 e1a1",
+          "cp": 67
+        }
+      ]
+    },
+    {
+      "move_number": 7,
+      "move": "f1e2",
+      "fen": "rnb1kbnr/ppp1pppp/8/4q3/8/2N5/PPPP1PPP/R1BQKBNR w KQkq - 2 4",
+      "eval": 0.72,
+      "classification": "best",
+      "best_move": "f1e2",
+      "alternative_lines": [
+        {
+          "moves": "f1e2 c8g4 d2d4 g4e2 g1e2 e5a5 b2b4 a5h5 d1d3 e7e6",
+          "cp": 72
+        },
+        {
+          "moves": "g1e2 e5a5 d2d4 g8f6 e2f4 c7c6 f1c4 c8f5 c1d2 b8d7",
+          "cp": 55
+        },
+        {
+          "moves": "d1e2 e5e2 f1e2 b8c6 c3d5 e8d8 g1f3 e7e5 b2b3 g8f6",
+          "cp": 32
+        }
+      ]
+    },
+    {
+      "move_number": 8,
+      "move": "e5g5",
+      "fen": "rnb1kbnr/ppp1pppp/8/4q3/8/2N5/PPPPBPPP/R1BQK1NR b KQkq - 3 4",
+      "eval": 0.67,
+      "classification": "great",
+      "best_move": "c8g4",
+      "alternative_lines": [
+        {
+          "moves": "c8g4 d2d4 g4e2 g1e2 e5a5 b2b4 a5h5 d1d3 e7e6 e2f4",
+          "cp": 67
+        },
+        {
+          "moves": "e5a5 g1f3 g8f6 e1h1 c7c6 d2d4 c8f5 f3h4 f5e6 f2f4",
+          "cp": 78
+        },
+        {
+          "moves": "g8f6 g1f3 e5a5 e1h1 c8f5 b2b4 a5b6 a2a4 c7c6 a4a5",
+          "cp": 79
+        }
+      ]
+    },
+    {
+      "move_number": 9,
+      "move": "d2d4",
+      "fen": "rnb1kbnr/ppp1pppp/8/6q1/8/2N5/PPPPBPPP/R1BQK1NR w KQkq - 4 5",
+      "eval": 1.54,
+      "classification": "brilliant",
+      "best_move": "g1f3",
+      "alternative_lines": [
+        {
+          "moves": "g1f3 g5a5 e1h1 g8f6 d2d4 c7c6 f1e1 e7e6 e2d3 f8e7",
+          "cp": 154
+        },
+        {
+          "moves": "d2d4 g5g2 e2f3 g2g6 c1f4 b8a6 a2a3 g6e6 g1e2 g8f6",
+          "cp": 96
+        },
+        {
+          "moves": "e2f3 c7c6 d2d4 g5a5 g1e2 g8f6 c1d2 a5d8 h2h4 h7h6",
+          "cp": 86
+        }
+      ]
+    },
+    {
+      "move_number": 10,
+      "move": "g5g2",
+      "fen": "rnb1kbnr/ppp1pppp/8/6q1/3P4/2N5/PPP1BPPP/R1BQK1NR b KQkq - 0 5",
+      "eval": 0.94,
+      "classification": "best",
+      "best_move": "g5g2",
+      "alternative_lines": [
+        {
+          "moves": "g5g2 e2f3 g2g6 c1f4 g6e6 g1e2 g8f6 f4c7 g7g6 d4d5",
+          "cp": 94
+        },
+        {
+          "moves": "g5a5 g1f3 c7c6 e1h1 g8f6 c1d2 c8f5 c3e4 a5c7 e4f6",
+          "cp": 117
+        },
+        {
+          "moves": "g5g6 g1f3 g6d6 f3e5 g8f6 c1f4 d6d8 d1d3 c7c6 e1a1",
+          "cp": 201
+        }
+      ]
+    },
+    {
+      "move_number": 11,
+      "move": "e2f3",
+      "fen": "rnb1kbnr/ppp1pppp/8/8/3P4/2N5/PPP1BPqP/R1BQK1NR w KQkq - 0 6",
+      "eval": 0.96,
+      "classification": "best",
+      "best_move": "e2f3",
+      "alternative_lines": [
+        {
+          "moves": "e2f3 g2g6 c1f4 b8a6 a2a3 g6e6 g1e2 g8f6 d1d3 g7g6",
+          "cp": 96
+        },
+        {
+          "moves": "d1d3 g2h1 d3g3 g8f6 e2f3 f6h5 f3h5 h1c6 c1f4 b8a6",
+          "cp": -42
+        },
+        {
+          "moves": "d1d3 g2h1 d3g3 g8f6 e2f3 f6h5 f3h5 h1c6 c1f4 b8a6",
+          "cp": -42
+        }
+      ]
+    },
+    {
+      "move_number": 12,
+      "move": "g2g6",
+      "fen": "rnb1kbnr/ppp1pppp/8/8/3P4/2N2B2/PPP2PqP/R1BQK1NR b KQkq - 1 6",
+      "eval": 0.88,
+      "classification": "best",
+      "best_move": "g2g6",
+      "alternative_lines": [
+        {
+          "moves": "g2g6 c1f4 g6e6 g1e2 g8f6 f4c7 g7g6 d4d5 e6h3 e2f4",
+          "cp": 88
+        },
+        {
+          "moves": "c8g4 f3g2 g4d1 g2b7 d1c2 b7a8 e7e6 c1d2 g8f6 a8f3",
+          "cp": 481
+        },
+        {
+          "moves": "g2h1 f3h1 g8f6 d1e2 c7c6 c1g5 c8g4 h1f3 g4f3 g1f3",
+          "cp": 521
+        }
+      ]
+    },
+    {
+      "move_number": 13,
+      "move": "f3e4",
+      "fen": "rnb1kbnr/ppp1pppp/6q1/8/3P4/2N2B2/PPP2P1P/R1BQK1NR w KQkq - 2 7",
+      "eval": 0.91,
+      "classification": "great",
+      "best_move": "c1f4",
+      "alternative_lines": [
+        {
+          "moves": "c1f4 b8a6 a2a3 g6b6 c3d5 b6e6 g1e2 g8f6 d5e3 g7g6",
+          "cp": 91
+        },
+        {
+          "moves": "d1e2 g6f5 c1e3 g8f6 e1a1 e7e6 h2h4 f8b4 g1h3 b4c3",
+          "cp": 50
+        },
+        {
+          "moves": "g1e2 g8f6 c1f4 g6f5 h1g1 h7h6 h2h4 h8g8 f3g2 c7c6",
+          "cp": 46
+        }
+      ]
+    },
+    {
+      "move_number": 14,
+      "move": "g6e6",
+      "fen": "rnb1kbnr/ppp1pppp/6q1/8/3PB3/2N5/PPP2P1P/R1BQK1NR b KQkq - 3 7",
+      "eval": -0.07,
+      "classification": "best",
+      "best_move": "g6e6",
+      "alternative_lines": [
+        {
+          "moves": "g6e6 d4d5 e6d6 g1e2 e7e5 e2g3 b8a6 d1e2 c8d7 c1g5",
+          "cp": -7
+        },
+        {
+          "moves": "g6d6 d1f3 c7c6 g1e2 g8f6 c1f4 d6b4 e1a1 g7g6 h1g1",
+          "cp": 27
+        },
+        {
+          "moves": "g6a6 c3d5 e8d8 c1f4 g8f6 f4c7 d8d7 d5f6 e7f6 c7g3",
+          "cp": 58
+        }
+      ]
+    },
+    {
+      "move_number": 15,
+      "move": "g1e2",
+      "fen": "rnb1kbnr/ppp1pppp/4q3/8/3PB3/2N5/PPP2P1P/R1BQK1NR w KQkq - 4 8",
+      "eval": 0.19,
+      "classification": "great",
+      "best_move": "d4d5",
+      "alternative_lines": [
+        {
+          "moves": "d4d5 e6d6 g1e2 g8f6 c1f4 e7e5 d5e6 d6d1 a1d1 f6e4",
+          "cp": 19
+        },
+        {
+          "moves": "g1e2 g8f6 e4g2 g7g6 c1f4 f8g7 d1d2 e8h8 e1a1 e6b6",
+          "cp": -17
+        },
+        {
+          "moves": "c1e3 g8f6 d4d5 e6d6 g1e2 g7g6 d1d2 f8g7 e4g2 e8h8",
+          "cp": -39
+        }
+      ]
+    }
+  ],
+  "total_moves": 31
+}
