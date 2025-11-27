@@ -1,0 +1,21 @@
+{
+  "game_info": {
+    "event": "Bullet: 1 min",
+    "date": "2025.11.20",
+    "result": "*"
+  },
+  "move_classifications": {
+    "brilliant": 0,
+    "great": 0,
+    "best": 0,
+    "excellent": 0,
+    "good": 0,
+    "book": 0,
+    "inaccuracy": 0,
+    "mistake": 0,
+    "blunder": 0
+  },
+  "estimated_elo": 0,
+  "detailed_moves": [],
+  "total_moves": 0
+}

@@ -1,0 +1,96 @@
+    def _analyze_with_stockfish(self, game: chess.pgn.Game) -> Dict:
+        """
+        Analyze game using local Stockfish engine
+        
+        Args:
+            game: chess.pgn.Game object
+            
+        Returns:
+            Analysis data compatible with process_analysis
+        """
+        try:
+            engine = chess.engine.SimpleEngine.popen_uci(self.stockfish_path)
+        except Exception as e:
+            return {"error": f"Failed to start Stockfish: {str(e)}"}
+            
+        try:
+            board = game.board()
+            analysis_data = []
+            
+            # Analyze each position
+            for move in game.mainline_moves():
+                # Analyze position BEFORE the move to get evaluation
+                # But wait, usually we want to know if the move played was good.
+                # So we need to evaluate the position BEFORE the move, and see what the engine suggests.
+                # And we also want to know the evaluation AFTER the move?
+                # The Lichess API returns eval for the position *after* the move?
+                # Let's check _process_analysis.
+                # It uses prev_eval and current_eval.
+                # And it compares played_move with best_move.
+                # best_move comes from eval_info.
+                
+                # So for each position (starting from initial), we ask engine for best move and eval.
+                # Then we make the move.
+                
+                # Let's look at how Lichess does it.
+                # _request_cloud_analysis iterates mainline_moves.
+                # for move in game.mainline_moves():
+                #   fen = board.fen() (Position BEFORE move)
+                #   eval_data = self._get_cloud_eval(fen)
+                #   analysis_data.append({ "fen": fen, "move": move.uci(), "eval": eval_data })
+                #   board.push(move)
+                
+                # So it evaluates the position BEFORE the move is made.
+                
+                fen = board.fen()
+                
+                # Analyze position
+                info = engine.analyse(board, chess.engine.Limit(time=0.1)) # Fast analysis
+                
+                # Get best move and eval
+                # We need top 3 moves to match Lichess format if possible, or at least best move
+                # engine.analyse returns info for the best move.
+                # To get multiple PVs, we need multipv=3
+                
+                info = engine.analyse(board, chess.engine.Limit(time=0.1), multipv=3)
+                
+                # Format into Lichess-like structure
+                # Lichess eval_data: {"pvs": [{"moves": "e2e4 ...", "cp": 20, "mate": None}, ...]}
+                
+                pvs = []
+                for pv_info in info:
+                    score = pv_info.get("score")
+                    mate = None
+                    cp = None
+                    
+                    if score.is_mate():
+                        mate = score.mate()
+                    else:
+                        cp = score.score()
+                        
+                    # Get PV moves as string
+                    pv_moves = [m.uci() for m in pv_info.get("pv", [])]
+                    moves_str = " ".join(pv_moves)
+                    
+                    pvs.append({
+                        "moves": moves_str,
+                        "cp": cp,
+                        "mate": mate
+                    })
+                
+                eval_data = {"pvs": pvs}
+                
+                analysis_data.append({
+                    "fen": fen,
+                    "move": move.uci(),
+                    "eval": eval_data
+                })
+                
+                board.push(move)
+            
+            engine.quit()
+            return {"moves": analysis_data, "game": game}
+            
+        except Exception as e:
+            engine.quit()
+            return {"error": f"Stockfish analysis failed: {str(e)}"}

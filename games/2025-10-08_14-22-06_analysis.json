@@ -1,0 +1,154 @@
+{
+  "game_info": {
+    "event": "Bullet: 1 min",
+    "date": "2025.10.08",
+    "result": "1-0"
+  },
+  "move_classifications": {
+    "brilliant": 0,
+    "great": 3,
+    "best": 3,
+    "excellent": 0,
+    "good": 0,
+    "book": 0,
+    "inaccuracy": 0,
+    "mistake": 0,
+    "blunder": 0
+  },
+  "estimated_elo": 1286,
+  "detailed_moves": [
+    {
+      "move_number": 1,
+      "move": "c2c4",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "eval": 0.19,
+      "classification": "best",
+      "best_move": "c2c4",
+      "alternative_lines": [
+        {
+          "moves": "c2c4 e7e5 g2g3 g8f6 f1g2 f8c5 d2d3 e8h8 b1c3 f8e8",
+          "cp": 19
+        },
+        {
+          "moves": "e2e4 e7e5 g1f3 b8c6 f1b5 g8f6 e1h1 f6e4 f1e1 e4d6",
+          "cp": 17
+        },
+        {
+          "moves": "g1f3 e7e6 e2e4 d7d5 e4d5 e6d5 d2d4 b8c6 f1e2 f8d6",
+          "cp": 14
+        }
+      ]
+    },
+    {
+      "move_number": 2,
+      "move": "e7e5",
+      "fen": "rnbqkbnr/pppppppp/8/8/2P5/8/PP1PPPPP/RNBQKBNR b KQkq - 0 1",
+      "eval": 0.12,
+      "classification": "best",
+      "best_move": "e7e5",
+      "alternative_lines": [
+        {
+          "moves": "e7e5 g2g3 g8f6 f1g2 f8c5 d2d3 e8h8 b1c3 f8e8 g1f3",
+          "cp": 12
+        },
+        {
+          "moves": "c7c5 b1c3 g8f6 g1f3 b8c6 g2g3 d7d5 d2d4 c5d4 f3d4",
+          "cp": 16
+        },
+        {
+          "moves": "g8f6 g1f3 e7e6 g2g3 d7d5 f1g2 d5d4 e2e3 c7c5 d2d3",
+          "cp": 17
+        }
+      ]
+    },
+    {
+      "move_number": 3,
+      "move": "g1f3",
+      "fen": "rnbqkbnr/pppp1ppp/8/4p3/2P5/8/PP1PPPPP/RNBQKBNR w KQkq - 0 2",
+      "eval": 0.14,
+      "classification": "great",
+      "best_move": "g2g3",
+      "alternative_lines": [
+        {
+          "moves": "g2g3 c7c6 g1f3 e5e4 f3d4 d7d5 c4d5 d8d5 d4c2 g8f6",
+          "cp": 14
+        },
+        {
+          "moves": "b1c3 g8f6 g1f3 b8c6 e2e4 f8b4 d2d3 d7d6 a2a3 b4c5",
+          "cp": 11
+        },
+        {
+          "moves": "d2d3 b8c6 g1f3 g8f6 b1c3 d7d5 c4d5 f6d5 e2e4 d5c3",
+          "cp": 11
+        }
+      ]
+    },
+    {
+      "move_number": 4,
+      "move": "c7c5",
+      "fen": "rnbqkbnr/pppp1ppp/8/4p3/2P5/5N2/PP1PPPPP/RNBQKB1R b KQkq - 1 2",
+      "eval": 0.0,
+      "classification": "great",
+      "best_move": "e5e4",
+      "alternative_lines": [
+        {
+          "moves": "e5e4 f3d4 b8c6 e2e3 g8f6 b1c3 f8b4 d1b3 a7a5 a2a3",
+          "cp": 0
+        },
+        {
+          "moves": "b8c6 g2g3 e5e4 f3h4 g8f6 b1c3 f8b4 c3d5 e8h8 f1g2",
+          "cp": 17
+        },
+        {
+          "moves": "d7d6 b1c3 f7f5 d2d4 e5e4 f3g1 f8e7 c1f4 g8f6 e2e3",
+          "cp": 31
+        }
+      ]
+    },
+    {
+      "move_number": 5,
+      "move": "f3e5",
+      "fen": "rnbqkbnr/pp1p1ppp/8/2p1p3/2P5/5N2/PP1PPPPP/RNBQKB1R w KQkq - 0 3",
+      "eval": 1.08,
+      "classification": "best",
+      "best_move": "f3e5",
+      "alternative_lines": [
+        {
+          "moves": "f3e5 b8c6 e5c6 d7c6 d2d3 f8d6 b1c3 g8f6 g2g3 e8h8",
+          "cp": 108
+        },
+        {
+          "moves": "b1c3 b8c6 e2e3 g8f6 d2d4 e5e4 d4d5 e4f3 d5c6 d7c6",
+          "cp": 17
+        },
+        {
+          "moves": "g2g3 b8c6 b1c3 g7g6 d2d3 f8g7 f1g2 d7d6 f3d2 g8e7",
+          "cp": 15
+        }
+      ]
+    },
+    {
+      "move_number": 6,
+      "move": "d8c7",
+      "fen": "rnbqkbnr/pp1p1ppp/8/2p1N3/2P5/8/PP1PPPPP/RNBQKB1R b KQkq - 0 3",
+      "eval": 1.08,
+      "classification": "great",
+      "best_move": "g8f6",
+      "alternative_lines": [
+        {
+          "moves": "g8f6 b1c3 b8c6 e5c6 d7c6 d2d3 f8d6 d1c2 e8h8 g2g3",
+          "cp": 108
+        },
+        {
+          "moves": "b8c6 e5c6 d7c6 d2d3 f8d6 b1c3 g8f6 d1c2 e8h8 g2g3",
+          "cp": 112
+        },
+        {
+          "moves": "d7d6 e5f3 b8c6 b1c3 g8f6 e2e4 g7g6 d2d3 f6g4 c1g5",
+          "cp": 114
+        }
+      ]
+    }
+  ],
+  "total_moves": 69
+}

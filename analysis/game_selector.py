@@ -221,12 +221,46 @@ class GameSelector:
     def analyze_game(self, pgn_file: str):
         """Analyze a game"""
         import sys
+        import shutil
         sys.path.append(os.path.dirname(os.path.dirname(__file__)))
         
-        try:
-            from analysis.game_analyzer import ChessGameAnalyzer
+        def find_stockfish():
+            """Find Stockfish executable"""
+            # Check system PATH
+            path = shutil.which("stockfish")
+            if path:
+                return path
+                
+            # Check common locations
+            common_paths = [
+                "stockfish.exe",
+                "stockfish",
+                "engine/stockfish.exe",
+                "engine/stockfish",
+                "bin/stockfish.exe",
+                "bin/stockfish"
+            ]
             
-            analyzer = ChessGameAnalyzer()
+            for p in common_paths:
+                if os.path.exists(p):
+                    return os.path.abspath(p)
+                    
+            return None
+        
+        try:
+            # Import handling both direct run and module run
+            try:
+                from game_analyzer import ChessGameAnalyzer
+            except ImportError:
+                from analysis.game_analyzer import ChessGameAnalyzer
+            
+            stockfish_path = find_stockfish()
+            if stockfish_path:
+                print(f"Found Stockfish at: {stockfish_path}")
+            else:
+                print("Stockfish not found, will try Lichess cloud analysis")
+            
+            analyzer = ChessGameAnalyzer(stockfish_path=stockfish_path)
             analysis = analyzer.analyze_pgn_file(pgn_file)
             
             if "error" not in analysis:
@@ -244,6 +278,8 @@ class GameSelector:
                 print(f"Analysis failed: {analysis['error']}")
         except Exception as e:
             print(f"Error analyzing game: {e}")
+            import traceback
+            traceback.print_exc()
     
     def analyze_all_games(self):
         """Analyze all games without analysis"""
@@ -269,7 +305,11 @@ class GameSelector:
             print(f"Analysis file not found: {analysis_file}")
             return
         
-        from analysis.analysis_viewer import AnalysisViewer
+        # Import handling both direct run and module run
+        try:
+            from analysis_viewer import AnalysisViewer
+        except ImportError:
+            from analysis.analysis_viewer import AnalysisViewer
         
         try:
             viewer = AnalysisViewer(pgn_file, analysis_file)

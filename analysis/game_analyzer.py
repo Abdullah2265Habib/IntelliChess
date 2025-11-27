@@ -1,5 +1,5 @@
 """
-Chess Game Analysis using Lichess API
+Chess Game Analysis using Lichess API and Stockfish
 Analyzes PGN files and provides detailed move classification and evaluation
 """
 
@@ -10,43 +10,64 @@ import json
 import time
 from typing import Dict, List, Optional
 import io
+import chess.engine
 
 class ChessGameAnalyzer:
-    """Analyzes chess games using Lichess cloud analysis API"""
+    """Analyzes chess games using Stockfish or Lichess cloud analysis API"""
     
-    def __init__(self):
+    def __init__(self, stockfish_path: str = None):
+        self.stockfish_path = stockfish_path
         self.base_url = "https://lichess.org/api"
         self.headers = {
             "Accept": "application/json"
         }
+        self.stockfish_engine = None
         
-    def analyze_pgn_file(self, pgn_path: str) -> Dict:
+        # Try to initialize stockfish library if path is provided
+        if self.stockfish_path:
+            try:
+                from stockfish import Stockfish
+                self.stockfish_engine = Stockfish(path=self.stockfish_path)
+                self.stockfish_engine.set_depth(15)  # Set analysis depth
+                print("Stockfish library initialized successfully")
+            except ImportError:
+                print("Warning: stockfish library not installed. Install with: pip install stockfish")
+                self.stockfish_engine = None
+            except Exception as e:
+                print(f"Warning: Failed to initialize Stockfish library: {e}")
+                self.stockfish_engine = None
+    
+    def analyze_pgn_file(self, pgn_file: str) -> Dict:
         """
-        Analyze a PGN file and return detailed analysis
+        Analyze a PGN file
         
         Args:
-            pgn_path: Path to the PGN file
+            pgn_file: Path to PGN file
             
         Returns:
-            Dictionary containing analysis results
+            Analysis results dictionary
         """
         try:
-            # Read PGN file
-            with open(pgn_path, 'r') as f:
+            # Load game from file
+            with open(pgn_file, 'r') as f:
                 pgn_text = f.read()
             
-            # Parse the PGN
             pgn_io = io.StringIO(pgn_text)
             game = chess.pgn.read_game(pgn_io)
             
             if not game:
-                return {"error": "Could not parse PGN file"}
+                return {"error": "Failed to parse PGN file"}
             
-            # Request cloud analysis from Lichess
-            analysis_result = self._request_cloud_analysis(game)
-            
-            if "error" in analysis_result:
-                return analysis_result
+            # Analyze using Stockfish library if available, otherwise try engine, then cloud
+            if self.stockfish_engine:
+                print("Using Stockfish library for analysis...")
+                analysis_result = self._analyze_with_stockfish_library(game)
+            elif self.stockfish_path:
+                print("Using Stockfish engine for analysis...")
+                analysis_result = self._analyze_with_stockfish(game)
+            else:
+                print("Using Lichess cloud analysis...")
+                analysis_result = self._request_cloud_analysis(game)
             
             # Process the analysis
             processed = self._process_analysis(game, analysis_result)
@@ -55,6 +76,136 @@ class ChessGameAnalyzer:
             
         except Exception as e:
             return {"error": f"Analysis failed: {str(e)}"}
+    
+    def _analyze_with_stockfish_library(self, game: chess.pgn.Game) -> Dict:
+        """
+        Analyze game using stockfish Python library
+        
+        Args:
+            game: chess.pgn.Game object
+            
+        Returns:
+            Analysis data compatible with process_analysis
+        """
+        if not self.stockfish_engine:
+            return {"error": "Stockfish engine not initialized"}
+        
+        try:
+            board = game.board()
+            analysis_data = []
+            move_count = len(list(game.mainline_moves()))
+            
+            print(f"Analyzing {move_count} moves...")
+            
+            # Analyze each position
+            for idx, move in enumerate(game.mainline_moves()):
+                fen = board.fen()
+                
+                # Set position and get evaluation
+                self.stockfish_engine.set_fen_position(fen)
+                
+                # Get top 3 lines
+                top_moves = self.stockfish_engine.get_top_moves(3)
+                
+                pvs = []
+                for move_info in top_moves:
+                    centipawn = move_info.get('Centipawn')
+                    mate_score = move_info.get('Mate')
+                    
+                    pvs.append({
+                        "moves": move_info.get('Move', ''),
+                        "cp": centipawn,
+                        "mate": mate_score
+                    })
+                
+                eval_data = {"pvs": pvs}
+                
+                analysis_data.append({
+                    "fen": fen,
+                    "move": move.uci(),
+                    "eval": eval_data
+                })
+                
+                board.push(move)
+                
+                # Progress indicator
+                if (idx + 1) % 10 == 0:
+                    print(f"  Analyzed {idx + 1}/{move_count} moves...")
+            
+            print(f"Analysis complete! Analyzed {len(analysis_data)} moves.")
+            return {"moves": analysis_data, "game": game}
+            
+        except Exception as e:
+            return {"error": f"Stockfish library analysis failed: {str(e)}"}
+
+    def _analyze_with_stockfish(self, game: chess.pgn.Game) -> Dict:
+        """
+        Analyze game using local Stockfish engine (chess.engine)
+        
+        Args:
+            game: chess.pgn.Game object
+            
+        Returns:
+            Analysis data compatible with process_analysis
+        """
+        try:
+            engine = chess.engine.SimpleEngine.popen_uci(self.stockfish_path)
+        except Exception as e:
+            return {"error": f"Failed to start Stockfish: {str(e)}"}
+            
+        try:
+            board = game.board()
+            analysis_data = []
+            
+            # Analyze each position
+            for move in game.mainline_moves():
+                fen = board.fen()
+                
+                # Analyze position
+                # We use a small time limit for speed, but user might want deeper analysis
+                # Let's use 0.1s per move for now
+                info = engine.analyse(board, chess.engine.Limit(time=0.1), multipv=3)
+                
+                pvs = []
+                for pv_info in info:
+                    score = pv_info.get("score")
+                    mate = None
+                    cp = None
+                    
+                    if score.is_mate():
+                        mate = score.mate()
+                    else:
+                        cp = score.score()
+                        
+                    # Get PV moves as string
+                    pv_moves = [m.uci() for m in pv_info.get("pv", [])]
+                    moves_str = " ".join(pv_moves)
+                    
+                    pvs.append({
+                        "moves": moves_str,
+                        "cp": cp,
+                        "mate": mate
+                    })
+                
+                eval_data = {"pvs": pvs}
+                
+                analysis_data.append({
+                    "fen": fen,
+                    "move": move.uci(),
+                    "eval": eval_data
+                })
+                
+                board.push(move)
+            
+            engine.quit()
+            return {"moves": analysis_data, "game": game}
+            
+        except Exception as e:
+            try:
+                engine.quit()
+            except:
+                pass
+            return {"error": f"Stockfish analysis failed: {str(e)}"}
     
     def _request_cloud_analysis(self, game: chess.pgn.Game) -> Dict:
         """
@@ -329,7 +480,7 @@ class ChessGameAnalyzer:
             analysis: Analysis dictionary
         """
         if "error" in analysis:
-            print(f"\n❌ Error: {analysis['error']}")
+            print(f"\nError: {analysis['error']}")
             return
         
         game_info = analysis.get("game_info", {})
@@ -337,26 +488,26 @@ class ChessGameAnalyzer:
         estimated_elo = analysis.get("estimated_elo", 0)
         
         print("\n" + "="*60)
-        print("🔍 CHESS GAME ANALYSIS")
+        print("CHESS GAME ANALYSIS")
         print("="*60)
         
-        print(f"\n📋 Game Information:")
+        print(f"\nGame Information:")
         print(f"   Event: {game_info.get('event')}")
         print(f"   Date: {game_info.get('date')}")
         print(f"   Result: {game_info.get('result')}")
         
-        print(f"\n📊 Move Classifications:")
-        print(f"   ⭐ Brilliant:    {classifications.get('brilliant', 0)}")
-        print(f"   🌟 Great:        {classifications.get('great', 0)}")
-        print(f"   ✅ Best:         {classifications.get('best', 0)}")
-        print(f"   👍 Excellent:    {classifications.get('excellent', 0)}")
-        print(f"   ✓  Good:         {classifications.get('good', 0)}")
-        print(f"   📖 Book:         {classifications.get('book', 0)}")
-        print(f"   ⚠️  Inaccuracy:  {classifications.get('inaccuracy', 0)}")
-        print(f"   ❌ Mistake:      {classifications.get('mistake', 0)}")
-        print(f"   💥 Blunder:      {classifications.get('blunder', 0)}")
+        print(f"\nMove Classifications:")
+        print(f"   Brilliant:    {classifications.get('brilliant', 0)}")
+        print(f"   Great:        {classifications.get('great', 0)}")
+        print(f"   Best:         {classifications.get('best', 0)}")
+        print(f"   Excellent:    {classifications.get('excellent', 0)}")
+        print(f"   Good:         {classifications.get('good', 0)}")
+        print(f"   Book:         {classifications.get('book', 0)}")
+        print(f"   Inaccuracy:  {classifications.get('inaccuracy', 0)}")
+        print(f"   Mistake:      {classifications.get('mistake', 0)}")
+        print(f"   Blunder:      {classifications.get('blunder', 0)}")
         
-        print(f"\n🎯 Estimated ELO: {estimated_elo}")
+        print(f"\nEstimated ELO: {estimated_elo}")
         print("="*60 + "\n")
 
 
@@ -383,7 +534,7 @@ if __name__ == "__main__":
         print(f"Analyzing most recent game: {pgn_file}")
     
     # Perform analysis
-    print("\n⏳ Analyzing game... (this may take a minute)")
+    print("\nAnalyzing game... (this may take a minute)")
     analysis = analyzer.analyze_pgn_file(pgn_file)
     
     # Print summary
@@ -394,4 +545,4 @@ if __name__ == "__main__":
         output_file = pgn_file.replace(".txt", "_analysis.json")
         with open(output_file, 'w') as f:
             json.dump(analysis, f, indent=2)
-        print(f"💾 Detailed analysis saved to: {output_file}")
+        print(f"Detailed analysis saved to: {output_file}")

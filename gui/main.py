@@ -20,6 +20,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'e
 from engine.opening_book.opening_book import OpeningBook
 from engine.endgame.endgame import EndgameEngine
 from engine.engine import EnhancedChessEngine as ChessEngine
+from gui.statistics_graphs import GameMetrics, display_game_statistics, save_metrics
 
 # New window dimensions
 BOARD_SIZE = 768
@@ -51,11 +52,12 @@ analysis_scroll_offset = 0
 
 class AnalysisEngine(ChessEngine):
     """Extended chess engine that outputs detailed analysis"""
-    def __init__(self):
+    def __init__(self, metrics=None):
         super().__init__()
         self.current_depth = 0
         self.nodes_searched = 0
         self.start_time = None
+        self.metrics = metrics
         
     def iterative_deepening_search(self, board, max_time):
         """Override to capture depth output"""
@@ -114,6 +116,10 @@ class AnalysisEngine(ChessEngine):
                     # Add to analysis lines
                     analysis_lines.append(f"info string {depth_info}")
                     
+                    # Record metrics if available
+                    if self.metrics:
+                        self.metrics.add_depth_data(depth, self.nodes_searched, elapsed, eval_score)
+                    
                     # Also add UCI-style format
                     # Handle mate scores (infinity values)
                     if abs(eval_score) > 9000:
@@ -157,11 +163,12 @@ class AnalysisEngine(ChessEngine):
 
 class BotMoveThread(threading.Thread):
     """Thread to calculate bot move without blocking UI"""
-    def __init__(self, board, opening_book, endgame_engine):
+    def __init__(self, board, opening_book, endgame_engine, metrics=None):
         super().__init__(daemon=True)
         self.board = board.copy()
         self.opening_book = opening_book
         self.endgame_engine = endgame_engine
+        self.metrics = metrics
         self.result = None
         self.finished = False
         self.is_opening_move = False
@@ -196,8 +203,14 @@ class BotMoveThread(threading.Thread):
             # Use engine with analysis output
             analysis_lines.append("info string Starting engine analysis...")
             
-            engine = AnalysisEngine()
+            engine = AnalysisEngine(metrics=self.metrics)
+            
+            start_time = time.time()
             best_move = engine.get_best_move(self.board, max_time=20.0)
+            total_time = time.time() - start_time
+            
+            if self.metrics:
+                self.metrics.add_move_time(total_time)
             
             if best_move:
                 analysis_lines.append(f"bestmove {best_move.uci()}")
@@ -463,6 +476,9 @@ def main():
     images = loadImages(SQUARESIZE)
     selected_time = show_menu(screen)
     timer = ChessTimer(total_time=selected_time)
+    
+    # Initialize metrics
+    metrics = GameMetrics()
 
     # Load fonts
     font_dir = os.path.join(os.path.dirname(__file__), "font")
@@ -600,6 +616,8 @@ def main():
             pygame.display.flip()
             time.sleep(3)
             saveGamePGN(board)
+            save_metrics(metrics, "last_game_metrics.json")
+            display_game_statistics(metrics)
             running = False
             continue
 
@@ -621,6 +639,8 @@ def main():
         for event in pygame.event.get():
             if board.is_game_over() and not isGameOver:
                 saveGamePGN(board)
+                save_metrics(metrics, "last_game_metrics.json")
+                display_game_statistics(metrics)
                 isGameOver = True
 
             if event.type == pygame.QUIT:
@@ -665,6 +685,8 @@ def main():
                     if move in board.legal_moves:
                         board.push(move)
                         timer.switch_turn()
+                        if metrics:
+                            metrics.start_new_move()
                     selectedSquare = None
 
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
@@ -685,7 +707,7 @@ def main():
             if (board.turn == chess.WHITE and BOT_PLAYS_WHITE) or \
                (board.turn == chess.BLACK and not BOT_PLAYS_WHITE):
                 
-                bot_thread = BotMoveThread(board, opening_book, endgame_engine)
+                bot_thread = BotMoveThread(board, opening_book, endgame_engine, metrics)
                 bot_thread.start()
                 waiting_for_bot = True
 
