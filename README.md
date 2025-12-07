@@ -511,7 +511,7 @@ This project is licensed under the MIT License - see LICENSE file for details.
 
 IntelliChess was developed by:
 
-- **[Abdullah Habib]** - Co-Developer
+- **Abdullah Habib** - Co-Developer
 - **[Tooba Nadeem](https://github.com/l232550)** - Co-Developer
 - **[Nayab Maryam](https://github.com/NayabMaryam)** - Co-Developer
 
