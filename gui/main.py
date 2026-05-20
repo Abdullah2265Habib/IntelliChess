@@ -19,7 +19,7 @@ from pgn.savePGN import saveGamePGN
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'engine')))
 from engine.opening_book.opening_book import OpeningBook
 from engine.endgame.endgame import EndgameEngine
-from engine.engine import EnhancedChessEngine as ChessEngine
+from engine.engine import EnhancedChessEngine as ChessEngine, MATE_SCORE, MAX_PLY
 from gui.statistics_graphs import GameMetrics, display_game_statistics, save_metrics
 
 # New window dimensions
@@ -55,7 +55,6 @@ class AnalysisEngine(ChessEngine):
     def __init__(self, metrics=None):
         super().__init__()
         self.current_depth = 0
-        self.nodes_searched = 0
         self.start_time = None
         self.metrics = metrics
         
@@ -66,88 +65,102 @@ class AnalysisEngine(ChessEngine):
         start_time = time.time()
         self.best_move_found = None
         self.nodes_searched = 0
+        self._start_time = start_time
+        self._max_time = max_time
+        self._stop = False
         
         legal_moves = list(board.legal_moves)
         if not legal_moves:
             return None
+        if len(legal_moves) == 1:
+            self.best_move_found = legal_moves[0]
+            analysis_lines.append(f"info string Only one legal move")
+            analysis_lines.append(f"bestmove {legal_moves[0].uci()}")
+            return legal_moves[0]
         
         self.best_move_found = legal_moves[0]
         best_eval = 0
         
-        # Aspiration window parameters
-        window_size = 50
-        
-        for depth in range(1, 50):
-            elapsed = time.time() - start_time
-            
-            if elapsed >= max_time * 0.90:
+        for depth in range(1, MAX_PLY):
+            if self._stop or (time.time() - start_time) >= max_time * 0.5:
                 break
             
-            # Set aspiration window around previous eval
-            alpha = best_eval - window_size
-            beta = best_eval + window_size
-            
-            try:
-                # Try search with narrow window
-                eval_score, move = self.pvs_root(
-                    board, depth, alpha, beta, start_time, max_time
-                )
+            # Aspiration windows
+            if depth >= 5:
+                delta = 25
+                alpha = best_eval - delta
+                beta = best_eval + delta
                 
-                # If we failed high or low, research with full window
-                if eval_score <= alpha or eval_score >= beta:
-                    eval_score, move = self.pvs_root(
-                        board, depth, float('-inf'), float('inf'), 
-                        start_time, max_time
-                    )
-                
-                if move is not None:
-                    self.best_move_found = move
-                    best_eval = eval_score
+                while True:
+                    try:
+                        score = self._search_root(board, depth, alpha, beta)
+                    except TimeoutError:
+                        self._stop = True
+                        break
                     
-                    elapsed = time.time() - start_time
-                    
-                    # Capture the depth output
-                    depth_info = (f"Depth {depth}: Eval={eval_score:+.2f}, "
-                          f"Move={move}, Nodes={self.nodes_searched}, "
-                          f"Time={elapsed:.2f}s, NPS={int(self.nodes_searched/elapsed) if elapsed > 0 else 0}")
-                    
-                    print(depth_info)
-                    
-                    # Add to analysis lines
-                    analysis_lines.append(f"info string {depth_info}")
-                    
-                    # Record metrics if available
-                    if self.metrics:
-                        self.metrics.add_depth_data(depth, self.nodes_searched, elapsed, eval_score)
-                    
-                    # Also add UCI-style format
-                    # Handle mate scores (infinity values)
-                    if abs(eval_score) > 9000:
-                        # Mate score
-                        mate_in = int((10000 - abs(eval_score)) / 2) if abs(eval_score) < 10000 else 1
-                        score_str = f"mate {mate_in if eval_score > 0 else -mate_in}"
+                    if score <= alpha:
+                        alpha = max(alpha - delta, -MATE_SCORE)
+                        delta *= 2
+                    elif score >= beta:
+                        beta = min(beta + delta, MATE_SCORE)
+                        delta *= 2
                     else:
-                        # Normal centipawn score
-                        cp_score = int(eval_score * 100)
-                        score_str = f"cp {cp_score}"
+                        best_eval = score
+                        break
                     
-                    time_ms = int(elapsed * 1000)
-                    nps = int(self.nodes_searched/elapsed) if elapsed > 0 else 0
-                    analysis_lines.append(
-                        f"info depth {depth} score {score_str} nodes {self.nodes_searched} nps {nps} time {time_ms} pv {move.uci()}"
-                    )
-                
-                # Mate found
-                if abs(eval_score) > 9000:
-                    mate_msg = f"Found forced mate! Eval: {eval_score}"
-                    print(mate_msg)
-                    analysis_lines.append(f"info string {mate_msg}")
+                    if delta > 500:
+                        try:
+                            score = self._search_root(board, depth, -MATE_SCORE, MATE_SCORE)
+                            best_eval = score
+                        except TimeoutError:
+                            self._stop = True
+                        break
+            else:
+                try:
+                    score = self._search_root(board, depth, -MATE_SCORE, MATE_SCORE)
+                    best_eval = score
+                except TimeoutError:
+                    self._stop = True
                     break
-                    
-            except TimeoutError:
-                timeout_msg = f"Search stopped at depth {depth} due to time limit"
-                print(timeout_msg)
-                analysis_lines.append(f"info string {timeout_msg}")
+            
+            if self._stop:
+                break
+            
+            elapsed = time.time() - start_time
+            nps = int(self.nodes_searched / elapsed) if elapsed > 0 else 0
+            
+            # Capture the depth output
+            depth_info = (f"Depth {depth}: Eval={best_eval:+.2f}, "
+                  f"Move={self.best_move_found}, Nodes={self.nodes_searched}, "
+                  f"Time={elapsed:.2f}s, NPS={nps}")
+            
+            print(depth_info)
+            
+            # Add to analysis lines
+            analysis_lines.append(f"info string {depth_info}")
+            
+            # Record metrics if available
+            if self.metrics:
+                self.metrics.add_depth_data(depth, self.nodes_searched, elapsed, best_eval)
+            
+            # Also add UCI-style format
+            if abs(best_eval) > MATE_SCORE - MAX_PLY:
+                mate_in = int((MATE_SCORE - abs(best_eval) + 1) / 2)
+                score_str = f"mate {mate_in if best_eval > 0 else -mate_in}"
+            else:
+                cp_score = int(best_eval * 100)
+                score_str = f"cp {cp_score}"
+            
+            time_ms = int(elapsed * 1000)
+            analysis_lines.append(
+                f"info depth {depth} score {score_str} nodes {self.nodes_searched} nps {nps} time {time_ms} pv {self.best_move_found.uci()}"
+            )
+            
+            # Mate found
+            if abs(best_eval) > MATE_SCORE - MAX_PLY:
+                mate_msg = f"Found forced mate! Eval: {best_eval}"
+                print(mate_msg)
+                analysis_lines.append(f"info string {mate_msg}")
                 break
         
         total_time = time.time() - start_time
