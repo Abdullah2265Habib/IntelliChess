@@ -1,381 +1,643 @@
 import time
+import math
 import chess
+import chess.polyglot
 from typing import Tuple, Optional
 from collections import defaultdict
 
 from position_evaluator import ChessPositionEvaluator
+
+# --- Constants ---
+MATE_SCORE = 9999
+MAX_PLY = 64
+TT_SIZE = 1 << 20  # ~1M entries
+
+# Transposition table entry flags
+TT_EXACT = 0
+TT_LOWERBOUND = 1
+TT_UPPERBOUND = 2
+
+# Precompute LMR reduction table
+LMR_TABLE = [[0] * 64 for _ in range(64)]
+for d in range(1, 64):
+    for m in range(1, 64):
+        LMR_TABLE[d][m] = max(0, int(0.75 + math.log(d) * math.log(m) / 2.25))
+
+
+class TranspositionTable:
+    """Fixed-size transposition table with depth-preferred replacement."""
+    __slots__ = ('table', 'mask')
+
+    def __init__(self, size=TT_SIZE):
+        self.mask = size - 1
+        self.table = [None] * size
+
+    def probe(self, key):
+        entry = self.table[key & self.mask]
+        if entry is not None and entry[0] == key:
+            return entry  # (key, depth, score, flag, best_move)
+        return None
+
+    def store(self, key, depth, score, flag, best_move):
+        idx = key & self.mask
+        old = self.table[idx]
+        # Always replace if: empty, same position, or new depth >= old depth
+        if old is None or old[0] == key or depth >= old[1]:
+            self.table[idx] = (key, depth, score, flag, best_move)
+
+    def clear(self):
+        for i in range(len(self.table)):
+            self.table[i] = None
+
 
 class EnhancedChessEngine:
     def __init__(self):
         self.evaluator = ChessPositionEvaluator()
         self.nodes_searched = 0
         self.best_move_found = None
-        self.transposition_table = {}
-        
-        # Killer moves: store two killer moves per depth
-        self.killer_moves = defaultdict(list)
-        
-        # History heuristic: track moves that caused cutoffs
-        self.history_table = {}
-        
-        # Principal variation
-        self.pv_table = {}
-        
-        # Move ordering scores
-        self.MVV_LVA = {
-            chess.PAWN: 100,
-            chess.KNIGHT: 320,
-            chess.BISHOP: 330,
-            chess.ROOK: 500,
-            chess.QUEEN: 900,
-            chess.KING: 20000
+        self.tt = TranspositionTable()
+
+        # Killer moves: store two killer moves per ply
+        self.killers = [[None, None] for _ in range(MAX_PLY)]
+
+        # History heuristic: [color][from_sq][to_sq]
+        self.history = [[[0] * 64 for _ in range(64)] for _ in range(2)]
+
+        # Counter move heuristic
+        self.counter_moves = [[None] * 64 for _ in range(64)]
+
+        # MVV-LVA scores for capture ordering
+        self._mvv_lva = {}
+        victim_scores = {
+            chess.PAWN: 1, chess.KNIGHT: 3, chess.BISHOP: 3,
+            chess.ROOK: 5, chess.QUEEN: 9, chess.KING: 20
         }
-    
+        attacker_scores = {
+            chess.PAWN: 6, chess.KNIGHT: 5, chess.BISHOP: 4,
+            chess.ROOK: 3, chess.QUEEN: 2, chess.KING: 1
+        }
+        for vt, vs in victim_scores.items():
+            for at, a_s in attacker_scores.items():
+                self._mvv_lva[(vt, at)] = vs * 10 + a_s
+
+        # Previous move for counter-move heuristic
+        self._prev_move = None
+
     def clear_tables(self):
-        """Clear search tables for new game"""
-        self.killer_moves.clear()
-        self.history_table.clear()
-        self.pv_table.clear()
-        self.transposition_table.clear()
-    
+        """Clear search tables for new game."""
+        self.tt.clear()
+        self.killers = [[None, None] for _ in range(MAX_PLY)]
+        self.history = [[[0] * 64 for _ in range(64)] for _ in range(2)]
+        self.counter_moves = [[None] * 64 for _ in range(64)]
+
     def get_best_move(self, board: chess.Board, max_time: float = None) -> chess.Move:
-        """Main entry point to get best move"""
-        current_eval = self.evaluator.evaluate_position(board)
-        is_white = board.turn
-        
-        if not is_white:
-            current_eval = -current_eval
-        
-        # Adaptive time control
+        """Main entry point to get best move."""
         if max_time is None:
-            if current_eval < -300:
-                max_time = 15.0  # Losing badly - think longer
-            elif current_eval < -150:
-                max_time = 12.0
-            elif current_eval < 150:
-                max_time = 10.0
-            else:
-                max_time = 8.0  # Winning - move faster
-        
+            max_time = 10.0
+
         return self.iterative_deepening_search(board, max_time)
-    
+
     def iterative_deepening_search(self, board: chess.Board, max_time: float) -> chess.Move:
-        """Iterative deepening with aspiration windows"""
+        """Iterative deepening with aspiration windows."""
         start_time = time.time()
         self.best_move_found = None
         self.nodes_searched = 0
-        
+        self._start_time = start_time
+        self._max_time = max_time
+        self._stop = False
+
         legal_moves = list(board.legal_moves)
         if not legal_moves:
             return None
-        
+        if len(legal_moves) == 1:
+            return legal_moves[0]
+
         self.best_move_found = legal_moves[0]
         best_eval = 0
-        
-        # Aspiration window parameters
-        window_size = 50
-        
-        for depth in range(1, 50):
-            elapsed = time.time() - start_time
-            
-            if elapsed >= max_time * 0.90:
+
+        for depth in range(1, MAX_PLY):
+            if self._stop or (time.time() - start_time) >= max_time * 0.5:
                 break
-            
-            # Set aspiration window around previous eval
-            alpha = best_eval - window_size
-            beta = best_eval + window_size
-            
-            try:
-                # Try search with narrow window
-                eval_score, move = self.pvs_root(
-                    board, depth, alpha, beta, start_time, max_time
-                )
-                
-                # If we failed high or low, research with full window
-                if eval_score <= alpha or eval_score >= beta:
-                    eval_score, move = self.pvs_root(
-                        board, depth, float('-inf'), float('inf'), 
-                        start_time, max_time
-                    )
-                
-                if move is not None:
-                    self.best_move_found = move
-                    best_eval = eval_score
-                    
-                    elapsed = time.time() - start_time
-                    print(f"Depth {depth}: Eval={eval_score:+.2f}, "
-                          f"Move={move}, Nodes={self.nodes_searched}, "
-                          f"Time={elapsed:.2f}s, NPS={int(self.nodes_searched/elapsed) if elapsed > 0 else 0}")
-                
-                # Mate found
-                if abs(eval_score) > 9000:
-                    print(f"Found forced mate! Eval: {eval_score}")
+
+            # Aspiration windows
+            if depth >= 5:
+                delta = 25
+                alpha = best_eval - delta
+                beta = best_eval + delta
+
+                while True:
+                    try:
+                        score = self._search_root(board, depth, alpha, beta)
+                    except TimeoutError:
+                        self._stop = True
+                        break
+
+                    if score <= alpha:
+                        alpha = max(alpha - delta, -MATE_SCORE)
+                        delta *= 2
+                    elif score >= beta:
+                        beta = min(beta + delta, MATE_SCORE)
+                        delta *= 2
+                    else:
+                        best_eval = score
+                        break
+
+                    if delta > 500:
+                        try:
+                            score = self._search_root(board, depth, -MATE_SCORE, MATE_SCORE)
+                            best_eval = score
+                        except TimeoutError:
+                            self._stop = True
+                        break
+            else:
+                try:
+                    score = self._search_root(board, depth, -MATE_SCORE, MATE_SCORE)
+                    best_eval = score
+                except TimeoutError:
+                    self._stop = True
                     break
-                    
-            except TimeoutError:
-                print(f"Search stopped at depth {depth} due to time limit")
+
+            if self._stop:
                 break
-        
+
+            elapsed = time.time() - start_time
+            nps = int(self.nodes_searched / elapsed) if elapsed > 0 else 0
+            print(f"Depth {depth}: Eval={best_eval:+.2f}, "
+                  f"Move={self.best_move_found}, Nodes={self.nodes_searched}, "
+                  f"Time={elapsed:.2f}s, NPS={nps}")
+
+            # Stop if mate found
+            if abs(best_eval) > MATE_SCORE - MAX_PLY:
+                print(f"Found forced mate! Eval: {best_eval}")
+                break
+
         total_time = time.time() - start_time
         nps = int(self.nodes_searched / total_time) if total_time > 0 else 0
         print(f"Final move: {self.best_move_found}, Total nodes: {self.nodes_searched}, "
               f"Time: {total_time:.2f}s, NPS: {nps}")
-        
+
         return self.best_move_found
-    
-    def pvs_root(self, board: chess.Board, depth: int, alpha: float, beta: float, 
-                 start_time: float, max_time: float) -> Tuple[float, Optional[chess.Move]]:
-        """Principal Variation Search at root"""
-        best_move = None
-        best_value = float('-inf')
-        
-        moves = self.order_moves(board, list(board.legal_moves), depth)
-        
-        for idx, move in enumerate(moves):
-            if time.time() - start_time >= max_time * 0.90:
+
+    def _check_time(self):
+        """Periodically check if time is up."""
+        if self.nodes_searched & 4095 == 0:
+            if time.time() - self._start_time >= self._max_time * 0.90:
+                self._stop = True
                 raise TimeoutError()
-            
+
+    def _search_root(self, board: chess.Board, depth: int, alpha: float, beta: float) -> float:
+        """Search at root level with full move ordering."""
+        best_move = None
+        best_value = -MATE_SCORE
+        old_alpha = alpha
+
+        moves = self._order_moves_root(board, depth)
+
+        for idx, move in enumerate(moves):
             board.push(move)
             try:
                 if idx == 0:
-                    # Full window search for first move
-                    value = -self.pvs(board, depth - 1, -beta, -alpha, start_time, max_time, depth)
+                    value = -self._pvs(board, depth - 1, -beta, -alpha, 1, True)
                 else:
-                    # Null window search for other moves
-                    value = -self.pvs(board, depth - 1, -alpha - 1, -alpha, start_time, max_time, depth)
-                    
-                    # Re-search if it's better than alpha
-                    if alpha < value < beta:
-                        value = -self.pvs(board, depth - 1, -beta, -alpha, start_time, max_time, depth)
+                    # LMR at root
+                    reduction = 0
+                    if (depth >= 3 and idx >= 3 and
+                            not board.is_check() and
+                            not move.promotion and
+                            not board.is_capture(move)):
+                        reduction = LMR_TABLE[min(depth, 63)][min(idx, 63)]
+                        reduction = max(0, reduction - 1)  # Less aggressive at root
+
+                    value = -self._pvs(board, depth - 1 - reduction, -alpha - 1, -alpha, 1, True)
+
+                    if value > alpha and (reduction > 0 or value < beta):
+                        value = -self._pvs(board, depth - 1, -beta, -alpha, 1, True)
             finally:
                 board.pop()
-            
+
+            if self._stop:
+                break
+
             if value > best_value:
                 best_value = value
                 best_move = move
-            
-            alpha = max(alpha, value)
+                self.best_move_found = move
+
+            if value > alpha:
+                alpha = value
+
             if alpha >= beta:
-                # Beta cutoff - update killer moves
-                self.update_killers(move, depth)
+                if not board.is_capture(move):
+                    self._update_killers(move, 0)
+                    self._update_history(board.turn, move, depth)
                 break
-        
-        return best_value, best_move
-    
-    def pvs(self, board: chess.Board, depth: int, alpha: float, beta: float,
-            start_time: float, max_time: float, ply: int) -> float:
-        """Principal Variation Search"""
+
+        # Store in TT
+        if not self._stop and best_move is not None:
+            key = chess.polyglot.zobrist_hash(board)
+            if best_value <= old_alpha:
+                flag = TT_UPPERBOUND
+            elif best_value >= beta:
+                flag = TT_LOWERBOUND
+            else:
+                flag = TT_EXACT
+            self.tt.store(key, depth, best_value, flag, best_move)
+
+        return best_value
+
+    def _pvs(self, board: chess.Board, depth: int, alpha: float, beta: float,
+             ply: int, pv_node: bool) -> float:
+        """Principal Variation Search with all pruning techniques."""
         self.nodes_searched += 1
-        
-        # Time check
-        if self.nodes_searched % 2048 == 0:
-            if time.time() - start_time >= max_time * 0.90:
-                raise TimeoutError()
-        
-        # Check transposition table
-        board_key = board.fen()
-        if board_key in self.transposition_table:
-            entry_depth, entry_value, entry_flag = self.transposition_table[board_key]
-            if entry_depth >= depth:
-                if entry_flag == 'exact':
-                    return entry_value
-                elif entry_flag == 'lowerbound' and entry_value >= beta:
-                    return entry_value
-                elif entry_flag == 'upperbound' and entry_value <= alpha:
-                    return entry_value
-        
-        # Terminal conditions
-        if depth <= 0 or board.is_game_over():
-            return self.quiescence_search(board, alpha, beta, start_time, max_time)
-        
-        # Null move pruning (if not in check and depth > 2)
-        if depth >= 3 and not board.is_check():
+        self._check_time()
+
+        is_check = board.is_check()
+
+        # Check extension
+        if is_check:
+            depth += 1
+
+        # Mate distance pruning
+        mating_value = MATE_SCORE - ply
+        if mating_value < beta:
+            beta = mating_value
+            if alpha >= mating_value:
+                return mating_value
+        mating_value = -MATE_SCORE + ply
+        if mating_value > alpha:
+            alpha = mating_value
+            if beta <= mating_value:
+                return mating_value
+
+        # Terminal / depth 0
+        if depth <= 0:
+            return self._quiescence(board, alpha, beta, ply, 0)
+
+        if board.is_game_over():
+            if board.is_checkmate():
+                return -MATE_SCORE + ply
+            return 0  # stalemate / draw
+
+        # Repetition / 50-move draw
+        if board.is_repetition(2) or board.can_claim_fifty_moves():
+            return 0
+
+        # --- Transposition Table probe ---
+        key = chess.polyglot.zobrist_hash(board)
+        tt_move = None
+        entry = self.tt.probe(key)
+        if entry is not None:
+            _, tt_depth, tt_score, tt_flag, tt_best = entry
+            tt_move = tt_best
+
+            if tt_depth >= depth and not pv_node:
+                if tt_flag == TT_EXACT:
+                    return tt_score
+                elif tt_flag == TT_LOWERBOUND and tt_score >= beta:
+                    return tt_score
+                elif tt_flag == TT_UPPERBOUND and tt_score <= alpha:
+                    return tt_score
+
+        # --- Static eval for pruning decisions ---
+        static_eval = self.evaluator.evaluate_position(board)
+        if not board.turn:
+            static_eval = -static_eval
+
+        # --- Reverse Futility Pruning (Static Null Move Pruning) ---
+        if (not pv_node and not is_check and depth <= 7 and
+                abs(beta) < MATE_SCORE - MAX_PLY):
+            margin = 80 * depth
+            if static_eval - margin >= beta:
+                return static_eval - margin
+
+        # --- Null Move Pruning ---
+        if (not pv_node and not is_check and depth >= 3 and
+                static_eval >= beta and
+                # Don't do NMP in positions with only pawns
+                (board.occupied_co[board.turn] &
+                 ~board.pawns & ~board.kings)):
+            R = 3 + depth // 4 + min((static_eval - beta) // 200, 3)
+            R = min(R, depth - 1)
+
             board.push(chess.Move.null())
             try:
-                null_score = -self.pvs(board, depth - 3, -beta, -beta + 1, start_time, max_time, ply + 1)
+                null_score = -self._pvs(board, depth - R - 1, -beta, -beta + 1,
+                                        ply + 1, False)
             finally:
                 board.pop()
-            
+
             if null_score >= beta:
-                return beta  # Null move cutoff
-        
-        max_value = float('-inf')
-        moves = self.order_moves(board, list(board.legal_moves), ply)
-        
-        flag = 'upperbound'
+                if abs(null_score) >= MATE_SCORE - MAX_PLY:
+                    return beta
+                return null_score
+
+        # --- Internal Iterative Deepening ---
+        if tt_move is None and depth >= 4 and pv_node:
+            self._pvs(board, depth - 2, alpha, beta, ply, True)
+            entry = self.tt.probe(key)
+            if entry is not None:
+                tt_move = entry[4]
+
+        # --- Move loop ---
+        best_value = -MATE_SCORE
         best_move = None
-        
-        for idx, move in enumerate(moves):
+        old_alpha = alpha
+        moves_searched = 0
+
+        moves = self._order_moves(board, tt_move, ply)
+
+        for move in moves:
+            is_capture = board.is_capture(move)
+            is_promotion = move.promotion is not None
+
+            # --- Futility Pruning ---
+            if (not pv_node and not is_check and depth <= 3 and
+                    moves_searched > 0 and not is_capture and
+                    not is_promotion and
+                    abs(alpha) < MATE_SCORE - MAX_PLY):
+                futility_margin = static_eval + 100 * depth
+                if futility_margin <= alpha:
+                    continue
+
+            # --- Late Move Pruning ---
+            if (not pv_node and not is_check and depth <= 3 and
+                    moves_searched >= 3 + depth * depth and
+                    not is_capture and not is_promotion):
+                continue
+
             board.push(move)
+            gives_check = board.is_check()
+
             try:
-                if idx == 0:
-                    # Full window search
-                    value = -self.pvs(board, depth - 1, -beta, -alpha, start_time, max_time, ply + 1)
+                if moves_searched == 0:
+                    value = -self._pvs(board, depth - 1, -beta, -alpha,
+                                       ply + 1, pv_node)
                 else:
-                    # Late Move Reduction (LMR)
+                    # LMR
                     reduction = 0
-                    if (depth >= 3 and idx >= 4 and 
-                        not board.is_capture(move) and 
-                        not board.is_check() and 
-                        move.promotion is None):
-                        reduction = 1
-                    
+                    if (depth >= 3 and moves_searched >= 2 and
+                            not is_capture and not is_promotion and
+                            not gives_check):
+                        reduction = LMR_TABLE[min(depth, 63)][min(moves_searched, 63)]
+
+                        # Reduce less in PV nodes
+                        if pv_node:
+                            reduction = max(0, reduction - 1)
+
+                        # Reduce less for killer moves
+                        if (move == self.killers[ply][0] or
+                                move == self.killers[ply][1]):
+                            reduction = max(0, reduction - 1)
+
+                        # Don't reduce into qsearch
+                        reduction = min(reduction, depth - 2)
+                        reduction = max(0, reduction)
+
                     # Null window search with reduction
-                    value = -self.pvs(board, depth - 1 - reduction, -alpha - 1, -alpha, 
-                                     start_time, max_time, ply + 1)
-                    
-                    # Re-search if necessary
-                    if alpha < value < beta:
-                        value = -self.pvs(board, depth - 1, -beta, -alpha, 
-                                        start_time, max_time, ply + 1)
+                    value = -self._pvs(board, depth - 1 - reduction,
+                                       -alpha - 1, -alpha, ply + 1, False)
+
+                    # Re-search without reduction if LMR failed high
+                    if value > alpha and reduction > 0:
+                        value = -self._pvs(board, depth - 1,
+                                           -alpha - 1, -alpha, ply + 1, False)
+
+                    # Full re-search if PV node and still better
+                    if value > alpha and value < beta:
+                        value = -self._pvs(board, depth - 1, -beta, -alpha,
+                                           ply + 1, True)
             finally:
                 board.pop()
-            
-            if value > max_value:
-                max_value = value
+
+            moves_searched += 1
+
+            if self._stop:
+                return 0
+
+            if value > best_value:
+                best_value = value
                 best_move = move
-            
-            alpha = max(alpha, value)
-            
+
+            if value > alpha:
+                alpha = value
+
             if alpha >= beta:
-                # Beta cutoff
-                if not board.is_capture(move):
-                    self.update_killers(move, ply)
-                    self.update_history(move, depth)
-                flag = 'lowerbound'
+                # Update quiet move heuristics
+                if not is_capture:
+                    self._update_killers(move, ply)
+                    self._update_history(board.turn, move, depth)
+                    # Counter move
+                    if self._prev_move:
+                        self.counter_moves[self._prev_move.from_square][self._prev_move.to_square] = move
                 break
-        
-        if max_value > alpha:
-            flag = 'exact'
-        
-        # Store in transposition table
-        self.transposition_table[board_key] = (depth, max_value, flag)
-        
-        return max_value
-    
-    def quiescence_search(self, board: chess.Board, alpha: float, beta: float,
-                         start_time: float, max_time: float, depth: int = 0) -> float:
-        """Quiescence search to avoid horizon effect"""
+
+        # Checkmate or stalemate
+        if moves_searched == 0:
+            if is_check:
+                return -MATE_SCORE + ply
+            return 0
+
+        # Store in TT
+        if not self._stop:
+            if best_value <= old_alpha:
+                flag = TT_UPPERBOUND
+            elif best_value >= beta:
+                flag = TT_LOWERBOUND
+            else:
+                flag = TT_EXACT
+            self.tt.store(key, depth, best_value, flag, best_move)
+
+        self._prev_move = best_move
+        return best_value
+
+    def _quiescence(self, board: chess.Board, alpha: float, beta: float,
+                    ply: int, q_depth: int) -> float:
+        """Quiescence search — captures and promotions only."""
         self.nodes_searched += 1
-        
+
+        if q_depth > 8:
+            eval_score = self.evaluator.evaluate_position(board)
+            return eval_score if board.turn == chess.WHITE else -eval_score
+
+        if board.is_checkmate():
+            return -MATE_SCORE + ply
+        if board.is_stalemate() or board.is_insufficient_material():
+            return 0
+
         stand_pat = self.evaluator.evaluate_position(board)
-        
-        if depth > 6:  # Limit quiescence depth
-            return stand_pat
-        
+        if not board.turn:
+            stand_pat = -stand_pat
+
         if stand_pat >= beta:
             return beta
-        
-        if alpha < stand_pat:
-            alpha = stand_pat
-        
-        # Generate tactical moves
-        tactical_moves = []
-        for move in board.legal_moves:
-            if board.is_capture(move) or move.promotion or board.gives_check(move):
-                tactical_moves.append(move)
-        
-        if not tactical_moves:
-            return stand_pat
-        
-        # Delta pruning - skip moves that can't possibly improve position
-        BIG_DELTA = 975  # Queen value
+
+        # Delta pruning
+        BIG_DELTA = 975
         if stand_pat < alpha - BIG_DELTA:
             return alpha
-        
-        tactical_moves = self.order_moves(board, tactical_moves, 0, quiesce=True)
-        
+
+        if stand_pat > alpha:
+            alpha = stand_pat
+
+        # Generate only tactical moves (captures + promotions)
+        tactical_moves = []
+        for move in board.legal_moves:
+            if board.is_capture(move) or move.promotion:
+                tactical_moves.append(move)
+
+        if not tactical_moves:
+            return stand_pat
+
+        # Order captures by MVV-LVA
+        tactical_moves.sort(key=lambda m: self._capture_score(board, m), reverse=True)
+
         for move in tactical_moves:
+            # SEE pruning: skip obviously bad captures
+            if board.is_capture(move) and not move.promotion:
+                if self._see_sign(board, move) < 0:
+                    continue
+
             board.push(move)
             try:
-                score = -self.quiescence_search(board, -beta, -alpha, start_time, max_time, depth + 1)
+                score = -self._quiescence(board, -beta, -alpha, ply + 1, q_depth + 1)
             finally:
                 board.pop()
-            
+
             if score >= beta:
                 return beta
-            
             if score > alpha:
                 alpha = score
-        
+
         return alpha
-    
-    def update_killers(self, move: chess.Move, ply: int):
-        """Update killer move table"""
-        if ply not in self.killer_moves:
-            self.killer_moves[ply] = []
-        
-        killers = self.killer_moves[ply]
-        
-        if move not in killers:
-            killers.insert(0, move)
-            if len(killers) > 2:
-                killers.pop()
-    
-    def update_history(self, move: chess.Move, depth: int):
-        """Update history heuristic"""
-        move_key = (move.from_square, move.to_square)
-        if move_key not in self.history_table:
-            self.history_table[move_key] = 0
-        self.history_table[move_key] += depth * depth
-    
-    def order_moves(self, board: chess.Board, moves: list, ply: int = 0, quiesce: bool = False) -> list:
-        """Advanced move ordering with multiple heuristics"""
-        def move_score(move):
+
+    def _see_sign(self, board, move):
+        """Simplified Static Exchange Evaluation — returns positive if capture is likely good."""
+        piece_values = {
+            chess.PAWN: 100, chess.KNIGHT: 325, chess.BISHOP: 335,
+            chess.ROOK: 500, chess.QUEEN: 975, chess.KING: 20000
+        }
+
+        # Value of captured piece
+        captured = board.piece_at(move.to_square)
+        if captured is None:
+            # En passant
+            if board.is_en_passant(move):
+                return 0  # pawn takes pawn, roughly equal
+            return 0
+
+        attacker = board.piece_at(move.from_square)
+        if attacker is None:
+            return 0
+
+        # If we capture something more valuable, it's likely good
+        captured_val = piece_values.get(captured.piece_type, 0)
+        attacker_val = piece_values.get(attacker.piece_type, 0)
+
+        # If capturing with a less valuable piece, it's definitely good
+        if captured_val >= attacker_val:
+            return 1
+
+        # Check if the destination square is defended
+        defenders = board.attackers(not board.turn, move.to_square)
+        if not defenders:
+            return 1  # No defenders = free capture
+
+        # Simple heuristic: gain = captured - attacker (if recaptured)
+        return captured_val - attacker_val
+
+    # --- Move Ordering ---
+
+    def _capture_score(self, board, move):
+        """Score a capture for ordering (MVV-LVA)."""
+        victim = board.piece_at(move.to_square)
+        attacker = board.piece_at(move.from_square)
+        if victim and attacker:
+            return self._mvv_lva.get((victim.piece_type, attacker.piece_type), 0)
+        if move.promotion:
+            return 60 + (move.promotion or 0)
+        return 0
+
+    def _order_moves_root(self, board, depth):
+        """Order moves at root level."""
+        tt_move = None
+        entry = self.tt.probe(chess.polyglot.zobrist_hash(board))
+        if entry is not None:
+            tt_move = entry[4]
+
+        moves = list(board.legal_moves)
+        scored = []
+        for move in moves:
             score = 0
-            
-            # PV move (from transposition table)
-            board_key = board.fen()
-            if board_key in self.pv_table and self.pv_table[board_key] == move:
-                score += 10000
-            
-            # Captures (MVV-LVA)
-            if board.is_capture(move):
-                victim = board.piece_at(move.to_square)
-                attacker = board.piece_at(move.from_square)
-                
-                if victim and attacker:
-                    victim_value = self.MVV_LVA.get(victim.piece_type, 0)
-                    attacker_value = self.MVV_LVA.get(attacker.piece_type, 0)
-                    score += (victim_value * 10 - attacker_value) + 8000
-            
-            # Promotions
-            if move.promotion:
-                score += 7000
-            
-            # Killer moves
-            if not quiesce and ply in self.killer_moves:
-                if move in self.killer_moves[ply]:
-                    score += 5000
-            
-            # History heuristic
-            move_key = (move.from_square, move.to_square)
-            if move_key in self.history_table:
-                score += min(self.history_table[move_key], 4000)
-            
-            # Checks
-            board.push(move)
-            if board.is_check():
-                score += 500
-            board.pop()
-            
-            # Center control
-            to_file = chess.square_file(move.to_square)
-            to_rank = chess.square_rank(move.to_square)
-            if 2 <= to_file <= 5 and 2 <= to_rank <= 5:
-                score += 20
-            
-            return score
-        
-        return sorted(moves, key=move_score, reverse=True)
+            if tt_move and move == tt_move:
+                score = 100000
+            elif board.is_capture(move):
+                score = 50000 + self._capture_score(board, move)
+            elif move.promotion:
+                score = 45000
+            else:
+                color_idx = 1 if board.turn else 0
+                score = self.history[color_idx][move.from_square][move.to_square]
+            scored.append((score, move))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [m for _, m in scored]
+
+    def _order_moves(self, board, tt_move, ply):
+        """Order moves using TT move, captures (MVV-LVA), killers, counter, history."""
+        moves = list(board.legal_moves)
+        scored = []
+        ply_idx = min(ply, MAX_PLY - 1)
+        color_idx = 1 if board.turn else 0
+
+        counter = None
+        if self._prev_move:
+            counter = self.counter_moves[self._prev_move.from_square][self._prev_move.to_square]
+
+        for move in moves:
+            score = 0
+
+            if tt_move and move == tt_move:
+                score = 100000
+            elif board.is_capture(move):
+                score = 50000 + self._capture_score(board, move)
+            elif move.promotion:
+                score = 45000
+            elif move == self.killers[ply_idx][0]:
+                score = 40000
+            elif move == self.killers[ply_idx][1]:
+                score = 39000
+            elif counter and move == counter:
+                score = 38000
+            else:
+                score = self.history[color_idx][move.from_square][move.to_square]
+
+            scored.append((score, move))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [m for _, m in scored]
+
+    def _update_killers(self, move, ply):
+        """Update killer moves at given ply."""
+        ply_idx = min(ply, MAX_PLY - 1)
+        if move != self.killers[ply_idx][0]:
+            self.killers[ply_idx][1] = self.killers[ply_idx][0]
+            self.killers[ply_idx][0] = move
+
+    def _update_history(self, color, move, depth):
+        """Update history heuristic with depth-squared bonus."""
+        color_idx = 1 if color else 0
+        bonus = depth * depth
+        val = self.history[color_idx][move.from_square][move.to_square]
+        # History gravity: prevent overflow
+        self.history[color_idx][move.from_square][move.to_square] = min(val + bonus, 16384)
 
 
 # Keep backward compatibility
 def return_bestMove_and_bestValue(board: chess.Board, depth: int = 3) -> chess.Move:
-    """Legacy function for compatibility"""
+    """Legacy function for compatibility."""
     engine = EnhancedChessEngine()
     max_time = min(depth * 3, 15.0)
-    
+
     try:
         return engine.get_best_move(board, max_time)
     except:
