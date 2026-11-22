@@ -29,6 +29,22 @@ class ChessPositionEvaluator:
         chess.ROOK: 530, chess.QUEEN: 1000, chess.KING: 0,
     }
 
+    # ---- AGGRESSION KNOB -------------------------------------------------
+    # Global multiplier applied to every "attacking" evaluation term
+    # (enemy-king attacks, piece threats, pawn storms, tropism).
+    # 1.0 = balanced, 2.0 = reckless. Tuned hot for an attacking style.
+    AGGRESSION = 1.8
+
+    # How much each attacker type contributes to the king-attack pressure
+    # when it bears on a square in the enemy king's ring.
+    KING_ATTACK_WEIGHT = {
+        chess.PAWN: 1,
+        chess.KNIGHT: 2,
+        chess.BISHOP: 2,
+        chess.ROOK: 3,
+        chess.QUEEN: 5,
+    }
+
     def __init__(self):
         # Build flattened PSTs for fast lookup: PST[piece_type] = (mg[64], eg[64])
         # Tables are from White's perspective, index = square (a1=0, h8=63)
@@ -227,6 +243,32 @@ class ChessPositionEvaluator:
             self._passed_pawn_mask_white[sq] = w_mask
             self._passed_pawn_mask_black[sq] = b_mask
 
+        # King "danger zone": the king square + the 8 squares around it,
+        # extended by one extra rank in front of the king (where attacks
+        # and pawn storms land). Stored as plain ints for fast masking.
+        self._king_zone = [0] * 64
+        for sq in range(64):
+            f = chess.square_file(sq)
+            r = chess.square_rank(sq)
+            zone = int(chess.BB_KING_ATTACKS[sq]) | int(chess.BB_SQUARES[sq])
+            # extend one rank toward the centre of the board (both ways is fine;
+            # this just widens the net a touch so looming attacks register)
+            for df in (-1, 0, 1):
+                nf = f + df
+                if 0 <= nf <= 7:
+                    for nr in (r + 2, r - 2):
+                        if 0 <= nr <= 7:
+                            zone |= int(chess.BB_SQUARES[chess.square(nf, nr)])
+            self._king_zone[sq] = zone
+
+        # Chebyshev distance table between any two squares (king tropism).
+        self._distance = [[0] * 64 for _ in range(64)]
+        for a in range(64):
+            af, ar = chess.square_file(a), chess.square_rank(a)
+            for b in range(64):
+                bf, br = chess.square_file(b), chess.square_rank(b)
+                self._distance[a][b] = max(abs(af - bf), abs(ar - br))
+
     def evaluate_position(self, board):
         """
         Main evaluation: tapered eval with MG/EG interpolation.
@@ -290,10 +332,14 @@ class ChessPositionEvaluator:
         king_mg = self._evaluate_king_safety(board)
         mg_score += king_mg
 
-        # --- Mobility (lightweight) ---
-        mob_mg, mob_eg = self._evaluate_mobility(board)
-        mg_score += mob_mg
-        eg_score += mob_eg
+        # --- Activity: mobility + enemy-king attacks + piece threats ---
+        act_mg, act_eg = self._evaluate_activity(board)
+        mg_score += act_mg
+        eg_score += act_eg
+
+        # --- Pawn storms against the enemy king (attacking term) ---
+        storm_mg = self._evaluate_pawn_storms(board)
+        mg_score += storm_mg
 
         # --- Tapered eval ---
         phase = min(phase, self.TOTAL_PHASE)
@@ -473,42 +519,148 @@ class ChessPositionEvaluator:
 
         return score
 
-    def _evaluate_mobility(self, board):
-        """Lightweight mobility using attack squares for knights and bishops."""
+    def _evaluate_activity(self, board):
+        """
+        Combined piece-activity evaluation in a single attack-mask pass:
+          * mobility (space / freedom of each piece)
+          * king attack  -> pressure on the squares around the ENEMY king
+          * threats       -> attacking more valuable / undefended enemy pieces
+          * king tropism  -> rewarding pieces that crowd the enemy king
+
+        The attack-related terms are scaled by AGGRESSION so the engine
+        actively hunts the enemy king and plays for the initiative.
+        Returns (mg, eg) from White's perspective.
+        """
         mg = 0
         eg = 0
+        AGG = self.AGGRESSION
+        KAW = self.KING_ATTACK_WEIGHT
 
-        # Knight mobility
-        for sq in board.pieces(chess.KNIGHT, chess.WHITE):
-            attacks = chess.popcount(int(board.attacks_mask(sq)))
-            mg += (attacks - 4) * 4
-            eg += (attacks - 4) * 4
-        for sq in board.pieces(chess.KNIGHT, chess.BLACK):
-            attacks = chess.popcount(int(board.attacks_mask(sq)))
-            mg -= (attacks - 4) * 4
-            eg -= (attacks - 4) * 4
+        wk = board.king(chess.WHITE)
+        bk = board.king(chess.BLACK)
+        # Zone around the enemy king (what each side is attacking).
+        black_zone = self._king_zone[bk] if bk is not None else 0
+        white_zone = self._king_zone[wk] if wk is not None else 0
 
-        # Bishop mobility
-        for sq in board.pieces(chess.BISHOP, chess.WHITE):
-            attacks = chess.popcount(int(board.attacks_mask(sq)))
-            mg += (attacks - 6) * 5
-            eg += (attacks - 6) * 3
-        for sq in board.pieces(chess.BISHOP, chess.BLACK):
-            attacks = chess.popcount(int(board.attacks_mask(sq)))
-            mg -= (attacks - 6) * 5
-            eg -= (attacks - 6) * 3
+        occ_white = board.occupied_co[chess.WHITE]
+        occ_black = board.occupied_co[chess.BLACK]
 
-        # Rook mobility
-        for sq in board.pieces(chess.ROOK, chess.WHITE):
-            attacks = chess.popcount(int(board.attacks_mask(sq)))
-            mg += (attacks - 7) * 2
-            eg += (attacks - 7) * 3
-        for sq in board.pieces(chess.ROOK, chess.BLACK):
-            attacks = chess.popcount(int(board.attacks_mask(sq)))
-            mg -= (attacks - 7) * 2
-            eg -= (attacks - 7) * 3
+        # Enemy heavy/minor targets for threat detection.
+        bq = int(board.pieces(chess.QUEEN, chess.BLACK))
+        br = int(board.pieces(chess.ROOK, chess.BLACK))
+        bm = int(board.pieces(chess.KNIGHT, chess.BLACK) | board.pieces(chess.BISHOP, chess.BLACK))
+        wq = int(board.pieces(chess.QUEEN, chess.WHITE))
+        wr = int(board.pieces(chess.ROOK, chess.WHITE))
+        wm = int(board.pieces(chess.KNIGHT, chess.WHITE) | board.pieces(chess.BISHOP, chess.WHITE))
+
+        # King-attack accumulators: (number of attackers, summed pressure).
+        w_atk_cnt = w_atk_units = 0   # White pieces attacking the Black king
+        b_atk_cnt = b_atk_units = 0   # Black pieces attacking the White king
+
+        # Mobility reference counts per piece type (centre of the scale).
+        MOB_BASE = {chess.KNIGHT: 4, chess.BISHOP: 6, chess.ROOK: 7, chess.QUEEN: 14}
+        MOB_MG = {chess.KNIGHT: 4, chess.BISHOP: 5, chess.ROOK: 2, chess.QUEEN: 2}
+        MOB_EG = {chess.KNIGHT: 4, chess.BISHOP: 3, chess.ROOK: 3, chess.QUEEN: 2}
+
+        for pt in (chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN):
+            base = MOB_BASE[pt]
+            mmg = MOB_MG[pt]
+            meg = MOB_EG[pt]
+            w = KAW[pt]
+
+            # ---- White pieces ----
+            for sq in board.pieces(pt, chess.WHITE):
+                att = int(board.attacks_mask(sq))
+                moves = chess.popcount(att & ~occ_white)
+                mg += (moves - base) * mmg
+                eg += (moves - base) * meg
+
+                z = att & black_zone
+                if z:
+                    w_atk_cnt += 1
+                    w_atk_units += w * chess.popcount(z)
+
+                # Threats on more valuable enemy pieces (undefended-ish bonus).
+                if pt in (chess.KNIGHT, chess.BISHOP):
+                    if att & bq:
+                        mg += int(55 * AGG)
+                    if att & br:
+                        mg += int(35 * AGG)
+                elif pt == chess.ROOK:
+                    if att & bq:
+                        mg += int(40 * AGG)
+                    if att & bm:
+                        mg += int(15 * AGG)
+
+                # King tropism: minor/major pieces that sit near the enemy king.
+                if bk is not None:
+                    d = self._distance[sq][bk]
+                    if d <= 3:
+                        mg += int((4 - d) * w * AGG)
+
+            # ---- Black pieces ----
+            for sq in board.pieces(pt, chess.BLACK):
+                att = int(board.attacks_mask(sq))
+                moves = chess.popcount(att & ~occ_black)
+                mg -= (moves - base) * mmg
+                eg -= (moves - base) * meg
+
+                z = att & white_zone
+                if z:
+                    b_atk_cnt += 1
+                    b_atk_units += w * chess.popcount(z)
+
+                if pt in (chess.KNIGHT, chess.BISHOP):
+                    if att & wq:
+                        mg -= int(55 * AGG)
+                    if att & wr:
+                        mg -= int(35 * AGG)
+                elif pt == chess.ROOK:
+                    if att & wq:
+                        mg -= int(40 * AGG)
+                    if att & wm:
+                        mg -= int(15 * AGG)
+
+                if wk is not None:
+                    d = self._distance[sq][wk]
+                    if d <= 3:
+                        mg -= int((4 - d) * w * AGG)
+
+        # ---- Convert accumulated king pressure into a score ----
+        # More attackers => sharply rising danger (sacrifices become worth it).
+        if w_atk_cnt >= 2:
+            mg += int(w_atk_units * w_atk_cnt * 0.9 * AGG)
+        if b_atk_cnt >= 2:
+            mg -= int(b_atk_units * b_atk_cnt * 0.9 * AGG)
 
         return mg, eg
+
+    def _evaluate_pawn_storms(self, board):
+        """
+        Reward pawns marching toward the enemy king (pawn-storm attacks).
+        The further advanced an attacking pawn and the closer to the enemy
+        king's file, the bigger the bonus. Middlegame-only term.
+        Returns a White-perspective score.
+        """
+        mg = 0
+        AGG = self.AGGRESSION
+        wk = board.king(chess.WHITE)
+        bk = board.king(chess.BLACK)
+
+        if bk is not None:
+            bk_file = chess.square_file(bk)
+            for sq in board.pieces(chess.PAWN, chess.WHITE):
+                if abs(chess.square_file(sq) - bk_file) <= 2:
+                    r = chess.square_rank(sq)  # 1..6 relevant
+                    mg += int(r * r * 0.8 * AGG)
+        if wk is not None:
+            wk_file = chess.square_file(wk)
+            for sq in board.pieces(chess.PAWN, chess.BLACK):
+                if abs(chess.square_file(sq) - wk_file) <= 2:
+                    r = 7 - chess.square_rank(sq)
+                    mg -= int(r * r * 0.8 * AGG)
+
+        return mg
 
     def is_endgame(self, board):
         """Check if we're in an endgame (for external use)."""

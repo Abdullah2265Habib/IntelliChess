@@ -57,6 +57,11 @@ class EnhancedChessEngine:
         self.best_move_found = None
         self.tt = TranspositionTable()
 
+        # Contempt: how much the engine HATES a draw (centipawns). A positive
+        # value makes the engine steer away from repetitions / 50-move draws
+        # and keep pressing for a win -- core to an aggressive style.
+        self.contempt = 40
+
         # Killer moves: store two killer moves per ply
         self.killers = [[None, None] for _ in range(MAX_PLY)]
 
@@ -82,6 +87,15 @@ class EnhancedChessEngine:
 
         # Previous move for counter-move heuristic
         self._prev_move = None
+
+    def _draw_score(self, ply):
+        """Contempt-adjusted draw value (negamax, relative to side to move).
+
+        At even ply the engine (root side) is to move, so a draw is scored
+        as -contempt (bad for us); at odd ply the opponent is to move, so the
+        draw is +contempt from their perspective. Net effect: the engine
+        avoids draws whenever it is not clearly worse."""
+        return -self.contempt if (ply & 1) == 0 else self.contempt
 
     def clear_tables(self):
         """Clear search tables for new game."""
@@ -276,11 +290,11 @@ class EnhancedChessEngine:
         if board.is_game_over():
             if board.is_checkmate():
                 return -MATE_SCORE + ply
-            return 0  # stalemate / draw
+            return self._draw_score(ply)  # stalemate / draw -> contempt
 
         # Repetition / 50-move draw
         if board.is_repetition(2) or board.can_claim_fifty_moves():
-            return 0
+            return self._draw_score(ply)
 
         # --- Transposition Table probe ---
         key = chess.polyglot.zobrist_hash(board)
@@ -435,7 +449,7 @@ class EnhancedChessEngine:
         if moves_searched == 0:
             if is_check:
                 return -MATE_SCORE + ply
-            return 0
+            return self._draw_score(ply)
 
         # Store in TT
         if not self._stop:
@@ -462,7 +476,7 @@ class EnhancedChessEngine:
         if board.is_checkmate():
             return -MATE_SCORE + ply
         if board.is_stalemate() or board.is_insufficient_material():
-            return 0
+            return self._draw_score(ply)
 
         stand_pat = self.evaluator.evaluate_position(board)
         if not board.turn:
