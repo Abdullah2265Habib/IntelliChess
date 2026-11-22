@@ -616,6 +616,10 @@ class EnhancedChessEngine:
                 score = 50000 + self._capture_score(board, move)
             elif move.promotion:
                 score = 45000
+            elif board.gives_check(move):
+                # Aggressive: search quiet checks very early -- they drive
+                # attacks and often lead to tactics / forced sequences.
+                score = 43000
             elif move == self.killers[ply_idx][0]:
                 score = 40000
             elif move == self.killers[ply_idx][1]:
